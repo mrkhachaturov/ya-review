@@ -38,3 +38,35 @@ export interface SyncResult {
 
 export type CompanyRole = 'mine' | 'competitor' | 'tracked';
 export type BrowserBackend = 'patchright' | 'playwright' | 'remote';
+
+// ─── YAML Config types ───
+
+export interface YarevTopicConfig {
+  name: string;
+  subtopics: string[];
+}
+
+export interface YarevCompetitorRef {
+  org_id: string;
+  priority: number;
+  notes?: string;
+}
+
+export interface YarevCompanyConfig {
+  org_id: string;
+  name: string;
+  role: CompanyRole;
+  service_type: string;
+  competitors?: YarevCompetitorRef[];
+  topics: YarevTopicConfig[] | 'inherit';
+}
+
+export interface YarevEmbeddingsConfig {
+  model: string;
+  batch_size: number;
+}
+
+export interface YarevConfig {
+  companies: YarevCompanyConfig[];
+  embeddings: YarevEmbeddingsConfig;
+}
