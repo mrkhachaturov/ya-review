@@ -186,9 +186,8 @@ CREATE INDEX idx_review_topics_topic ON review_topics(topic_id);
 ### Existing table changes
 
 ```sql
--- Extend company_relations with competitor scoring
+-- Extend company_relations with competitor priority
 ALTER TABLE company_relations ADD COLUMN priority INTEGER;        -- 1-10 (from YAML)
-ALTER TABLE company_relations ADD COLUMN similarity_score REAL;   -- computed from embeddings
 ALTER TABLE company_relations ADD COLUMN notes TEXT;
 
 -- Add service_type to companies
@@ -344,16 +343,65 @@ within 24h. Progress shown in terminal.
 
 Each review gets 1-3 subtopic labels. `yarev topics` aggregates by topic hierarchy.
 
-## 7. Competitor Similarity Score
+## 7. AI Quality Score (per company, per topic)
 
-Computed automatically after embeddings exist:
+Each company gets an AI-computed quality score, broken down by topic. The overall
+score is a weighted average of topic scores.
 
-1. For each company pair, compute average embedding of all their reviews
-2. Cosine similarity between company centroids = `similarity_score`
-3. Also compare topic distributions: companies with similar complaint patterns
-   score higher
+### How it's computed
 
-Stored in `company_relations.similarity_score`, updated by `yarev embed`.
+For each topic:
+
+1. Collect all reviews classified into that topic
+2. Base score = weighted average of stars (1-5 → 2-10 scale)
+3. Recency weight: reviews from last 6 months count 2x, last year 1.5x, older 1x
+4. Sentiment adjustment: embedding-based sentiment shifts score ±1 point.
+   A 3★ review saying "в целом нормально" scores higher than one saying
+   "разочарован полностью" — same stars, different sentiment.
+5. Volume confidence: scores from <5 reviews are marked as "low confidence"
+
+Overall company score = weighted average of topic scores, where weight = number
+of reviews in that topic. Topics mentioned more often have more influence.
+
+### Output
+
+```
+yarev score <org_id>
+
+Astra Motors                           AI Score: 7.4 / 10
+──────────────────────────────────────────────────────────
+  Персонал и общение                   9.1 / 10  (156 reviews)
+  Комфорт и сервис                     8.8 / 10  (67 reviews)
+  Качество работ                       7.9 / 10  (134 reviews)
+  Время и доступность                  6.5 / 10  (89 reviews)
+  Диагностика и рекомендации           5.8 / 10  (72 reviews)
+  Гарантия и ответственность           5.2 / 10  (31 reviews)  ⚠ low confidence
+  Цены и стоимость                     4.2 / 10  (187 reviews)
+```
+
+### Comparing companies
+
+```
+yarev score --compare <mine> <competitor>
+```
+
+Shows side-by-side topic scores for two companies to see where you win and lose.
+
+### Storage
+
+```sql
+-- Computed scores, refreshed by `yarev classify` or `yarev score --refresh`
+CREATE TABLE company_scores (
+  id INTEGER PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES companies(org_id),
+  topic_id INTEGER REFERENCES topic_templates(id),  -- NULL = overall score
+  score REAL NOT NULL,            -- 0.0–10.0
+  review_count INTEGER NOT NULL,
+  confidence TEXT NOT NULL,       -- 'high', 'medium', 'low'
+  computed_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(org_id, topic_id)
+);
+```
 
 ## 8. Implementation Phases
 
@@ -364,7 +412,7 @@ Stored in `company_relations.similarity_score`, updated by `yarev embed`.
 | **3** | OpenAI embedding client + `yarev embed` | Phase 2 |
 | **4** | Topic classification + `yarev classify` + `yarev topics` | Phase 3 |
 | **5** | Semantic `yarev search` + `yarev similar` | Phase 3 |
-| **6** | Competitor similarity scoring | Phase 3 |
+| **6** | AI quality scoring + `yarev score` | Phase 4 |
 | **7** | sqlite-vec integration | Phase 3 |
 | **8** | pgvector export | Phase 3 |
 
@@ -376,5 +424,5 @@ Stored in `company_relations.similarity_score`, updated by `yarev embed`.
 | One topic set or per-company? | Per-company, defined in YAML |
 | Flat or hierarchical topics? | Hierarchical (parent/subtopic), stored with self-referencing parent_id |
 | Where to store config? | `$YAREV_CONFIG` → `~/.yarev/config.yaml` |
-| Competitor scoring? | Manual priority (YAML) + auto similarity_score (embeddings) |
+| Competitor scoring? | Manual priority (YAML) for relevance + AI quality score per company per topic |
 | Topic labels language? | Russian (matches review language) |
