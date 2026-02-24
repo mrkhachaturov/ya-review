@@ -80,7 +80,7 @@ yarev query "SELECT COUNT(*) as cnt FROM reviews WHERE stars >= 4"
 |---------|-------------|
 | `sync` | Scrape reviews for tracked orgs (`--org`, `--full`) |
 | `status` | Show sync status for all companies |
-| `daemon` | Scheduled sync via cron (`--cron`, `--embed-cron`) |
+| `daemon` | Scheduled sync + embed/classify via cron (`--cron`, `--embed-cron`) |
 
 ### Querying & Analysis
 
@@ -126,7 +126,8 @@ Environment variables (or `.env` file):
 | `MAX_PAGES` | `20` | Max scroll pages during full sync |
 | `DAEMON_CRON` | `0 8 * * *` | Cron schedule for daemon sync |
 | `EMBED_CRON` | `0 2 * * *` | Cron schedule for embed pipeline |
-| `EMBED_ON_SYNC` | `false` | Run embed pipeline after each sync |
+| `EMBED_ON_SYNC` | `false` | Run embed+classify after each sync |
+| `LOG_LEVEL` | `info` | Daemon log level: `debug`, `info`, `warn`, `error` |
 | `YAREV_OPENAI_API_KEY` | — | OpenAI API key (required for embeddings) |
 | `YAREV_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
 | `YAREV_CONFIG` | `~/.yarev/config.yaml` | Path to YAML config |
@@ -142,13 +143,16 @@ Run with PostgreSQL + pgvector:
 docker compose up -d postgres
 
 # Start full stack (PG + yarev daemon)
-docker compose up
+# Daemon auto-applies config.yaml, syncs all companies, then runs embed+classify
+YAREV_CONFIG_PATH=~/.yarev/config.yaml EMBED_ON_SYNC=true docker compose up
 
 # Build image
 docker build -t yarev .
 ```
 
-Configure via environment variables or `.env` file — see [.env.example](.env.example).
+The daemon on startup: applies YAML config → syncs all companies → embeds reviews & topics → classifies reviews into topics. Subsequent runs are scheduled via cron.
+
+Configure via environment variables or `.env` file — see [.env.example](.env.example). Daemon outputs structured JSON logs (control verbosity with `LOG_LEVEL`).
 
 ## Development
 

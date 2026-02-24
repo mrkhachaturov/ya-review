@@ -13,12 +13,14 @@ export const initCommand = new Command('init')
     const db = await createDbClient(config);
     await initSchema(db);
     await db.close();
-    console.log(`Database created at ${config.dbPath}`);
+    console.log(`Database initialized at ${config.dbUrl ? config.dbUrl.replace(/\/\/.*@/, '//***@') : config.dbPath}`);
 
     // Install browser
     const backend = opts.backend as BrowserBackend;
     try {
-      if (backend === 'patchright') {
+      if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+        console.log(`Using system Chromium at ${process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}`);
+      } else if (backend === 'patchright') {
         console.log('Installing Patchright Chromium...');
         execSync('npx patchright install chromium', { stdio: 'inherit' });
       } else if (backend === 'playwright') {

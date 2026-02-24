@@ -43,7 +43,26 @@ export class PgClient implements DbClient {
     await this.queryable.query(sql);
   }
 
+  private txDepth = 0;
+
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    // Nested transaction: use SAVEPOINTs
+    if (this.txClient) {
+      const sp = `sp_${++this.txDepth}`;
+      try {
+        await this.txClient.query(`SAVEPOINT ${sp}`);
+        const result = await fn();
+        await this.txClient.query(`RELEASE SAVEPOINT ${sp}`);
+        return result;
+      } catch (e) {
+        await this.txClient.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+        throw e;
+      } finally {
+        this.txDepth--;
+      }
+    }
+
+    // Outer transaction
     const client = await this.pool.connect();
     this.txClient = client;
     try {

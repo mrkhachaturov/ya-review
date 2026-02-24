@@ -62,9 +62,11 @@ export async function createBrowser(cfg: Config): Promise<BrowserInstance> {
 
   if (backend === 'playwright') {
     const pw = await importPlaywright();
+    const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
     const browser = await pw.chromium.launch({
       headless: cfg.browserHeadless,
       args: LAUNCH_ARGS,
+      ...(executablePath ? { executablePath } : {}),
     });
     return {
       browser,

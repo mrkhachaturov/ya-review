@@ -1,5 +1,6 @@
 import type { DbClient } from './driver.js';
-import { cosineSimilarity, bufferToFloat32 } from '../embeddings/vectors.js';
+import { cosineSimilarity } from '../embeddings/vectors.js';
+import { sqlToEmbedding } from './sql-helpers.js';
 
 export interface StatsResult {
   org_id: string;
@@ -167,7 +168,7 @@ export async function semanticSearchReviews(
 
   const scored = rows
     .map(r => {
-      const vec = bufferToFloat32(r.text_embedding);
+      const vec = sqlToEmbedding(db, r.text_embedding);
       const similarity = cosineSimilarity(queryEmbedding, vec);
       return {
         org_id: r.org_id,

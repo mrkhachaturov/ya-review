@@ -6,7 +6,7 @@ import { listCompanies } from '../db/companies.js';
 import { getUnembeddedReviewIds, saveReviewEmbedding, saveTopicEmbedding } from '../db/embeddings.js';
 import { getTopicsForOrg } from '../db/topics.js';
 import { embedBatched } from '../embeddings/client.js';
-import { float32ToBuffer } from '../embeddings/vectors.js';
+import { embeddingToSql } from '../db/sql-helpers.js';
 
 export const embedCommand = new Command('embed')
   .description('Generate embeddings for reviews and topic labels')
@@ -50,7 +50,7 @@ export const embedCommand = new Command('embed')
         process.stdout.write('\n');
 
         for (let i = 0; i < reviews.length; i++) {
-          await saveReviewEmbedding(db, reviews[i].id, model, float32ToBuffer(embeddings[i]), null);
+          await saveReviewEmbedding(db, reviews[i].id, model, embeddingToSql(db, embeddings[i]), null);
         }
         totalReviews += reviews.length;
       }
@@ -66,7 +66,7 @@ export const embedCommand = new Command('embed')
         const topicTexts = unembeddedTopics.map(t => t.name);
         const topicEmbeddings = await embedBatched(topicTexts, undefined, model);
         for (let i = 0; i < unembeddedTopics.length; i++) {
-          await saveTopicEmbedding(db, unembeddedTopics[i].id, float32ToBuffer(topicEmbeddings[i]));
+          await saveTopicEmbedding(db, unembeddedTopics[i].id, embeddingToSql(db, topicEmbeddings[i]));
         }
         totalTopics += unembeddedTopics.length;
       }

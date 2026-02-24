@@ -12,8 +12,8 @@ export async function saveReviewEmbedding(
   db: DbClient,
   reviewId: number,
   model: string,
-  textEmbedding: Buffer,
-  responseEmbedding: Buffer | null,
+  textEmbedding: Buffer | string,
+  responseEmbedding: Buffer | string | null,
 ): Promise<void> {
   const now = new Date().toISOString();
   await db.run(`
@@ -40,6 +40,6 @@ export async function getUnembeddedReviewIds(db: DbClient, orgId: string): Promi
   `, [orgId]);
 }
 
-export async function saveTopicEmbedding(db: DbClient, topicId: number, embedding: Buffer): Promise<void> {
+export async function saveTopicEmbedding(db: DbClient, topicId: number, embedding: Buffer | string): Promise<void> {
   await db.run('UPDATE topic_templates SET embedding = ? WHERE id = ?', [embedding, topicId]);
 }

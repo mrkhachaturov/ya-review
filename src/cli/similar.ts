@@ -5,7 +5,7 @@ import { initSchema } from '../db/schema.js';
 import { getReviewEmbedding } from '../db/embeddings.js';
 import { semanticSearchReviews } from '../db/stats.js';
 import { embedTexts } from '../embeddings/client.js';
-import { bufferToFloat32 } from '../embeddings/vectors.js';
+import { sqlToEmbedding } from '../db/sql-helpers.js';
 import { isJsonMode, outputJson, outputTable, truncate } from './helpers.js';
 
 export const similarCommand = new Command('similar')
@@ -35,7 +35,7 @@ export const similarCommand = new Command('similar')
         process.exitCode = 1;
         return;
       }
-      queryVec = bufferToFloat32(emb.text_embedding);
+      queryVec = sqlToEmbedding(db, emb.text_embedding);
     } else {
       const [vec] = await embedTexts([opts.text]);
       queryVec = vec;

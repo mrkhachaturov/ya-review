@@ -34,7 +34,7 @@ docs/             — scoring algorithm docs (EN/RU)
 - YAML config: `~/.yarev/config.yaml` — companies, topics, competitors. Parser in `src/yaml-config.ts`
 - CLI: Commander.js, one file per command in `src/cli/`
 - Output: JSON by default when piped (non-TTY), table for terminal
-- Embeddings: OpenAI `text-embedding-3-small`, stored as Float32 BLOBs in `review_embeddings`
+- Embeddings: OpenAI `text-embedding-3-small`, stored via `embeddingToSql()`/`sqlToEmbedding()` (Float32 BLOBs in SQLite, pgvector strings in PG)
 - Topic classification: cosine similarity between review and topic label embeddings
 - Scoring: stars→2-10 scale, recency-weighted, per-topic confidence levels
 - Tests: Node.js native test runner (`node:test`), assert/strict
@@ -73,7 +73,9 @@ Optional:
 - `YAREV_CONFIG` — YAML config path (default: `~/.yarev/config.yaml`)
 - `YAREV_EMBEDDING_MODEL` — embedding model (default: `text-embedding-3-small`)
 - `EMBED_CRON` — embed pipeline schedule (default: `0 2 * * *`)
-- `EMBED_ON_SYNC` — run embed after sync (default: `false`)
+- `EMBED_ON_SYNC` — run embed+classify after sync (default: `false`)
+- `LOG_LEVEL` — daemon log level: `debug`, `info`, `warn`, `error` (default: `info`)
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` — path to system Chromium (used in Docker to skip Playwright download)
 
 ## AI Pipeline (in order)
 ```
@@ -85,6 +87,7 @@ yarev apply → yarev embed → yarev classify → yarev topics / yarev score
 - Patchright/Playwright/openai are optional deps — lazy-loaded. `pg` is now a regular dependency
 - DB operations are async via DbClient. SqliteClient wraps sync better-sqlite3 in Promises
 - better-sqlite3 `transaction()` doesn't support async callbacks — SqliteClient uses manual BEGIN/COMMIT with SAVEPOINTs for nesting
+- PgClient also supports nested transactions via SAVEPOINTs — required by `applyConfig()` which nests `upsertTopics()` transactions
 - In worktrees: `npm install --ignore-scripts` skips native builds; run `npm rebuild better-sqlite3` after
 - All DB module functions use positional `?` params (not named `@param`). PgClient converts `?` to `$N` automatically
 - `openai` package requires `YAREV_OPENAI_API_KEY` — throws on first use if missing
@@ -95,6 +98,11 @@ yarev apply → yarev embed → yarev classify → yarev topics / yarev score
 - `docker compose up` — start full stack (PG + yarev daemon)
 - `docker build -t yarev .` — build image (multi-stage, includes Chromium)
 - pgvector image: `pgvector/pgvector:pg17`
+- Daemon auto-applies YAML config on startup, then runs sync → embed → classify pipeline
+- Dockerfile uses `--ignore-scripts` + `npm rebuild better-sqlite3` to avoid `prepare` script issues
+- Set `YAREV_CONFIG_PATH` to mount your config: `YAREV_CONFIG_PATH=~/.yarev/config.yaml docker compose up`
+- Set `EMBED_ON_SYNC=true` to run embed+classify after each sync cycle
+- Structured JSON logging with `LOG_LEVEL` env var (debug/info/warn/error)
 
 ## Reference Projects
 - `/Users/mrkhachaturov/Developer/ya-metrics/hae-vault` — CLI structure, config, DB patterns

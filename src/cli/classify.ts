@@ -5,7 +5,7 @@ import { initSchema } from '../db/schema.js';
 import { listCompanies } from '../db/companies.js';
 import { getTopicsForOrg } from '../db/topics.js';
 import { classifyReview } from '../embeddings/classify.js';
-import { bufferToFloat32 } from '../embeddings/vectors.js';
+import { sqlToEmbedding } from '../db/sql-helpers.js';
 import type { DbClient } from '../db/driver.js';
 
 async function classifyOrg(db: DbClient, orgId: string, threshold: number): Promise<number> {
@@ -16,7 +16,7 @@ async function classifyOrg(db: DbClient, orgId: string, threshold: number): Prom
     .map(t => ({
       id: t.id,
       name: t.name,
-      embedding: bufferToFloat32(t.embedding!),
+      embedding: sqlToEmbedding(db, t.embedding!),
     }));
 
   if (subtopics.length === 0) {
@@ -41,7 +41,7 @@ async function classifyOrg(db: DbClient, orgId: string, threshold: number): Prom
   let classified = 0;
   await db.transaction(async () => {
     for (const row of reviewRows) {
-      const vec = bufferToFloat32(row.text_embedding);
+      const vec = sqlToEmbedding(db, row.text_embedding);
       const matches = classifyReview(vec, subtopics, threshold);
       for (const match of matches) {
         await db.run(`

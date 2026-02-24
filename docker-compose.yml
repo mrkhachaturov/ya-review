@@ -26,6 +26,8 @@ services:
       YAREV_CONFIG: /app/config.yaml
       DAEMON_CRON: ${DAEMON_CRON:-0 8 * * *}
       EMBED_CRON: ${EMBED_CRON:-0 2 * * *}
+      EMBED_ON_SYNC: ${EMBED_ON_SYNC:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ${YAREV_CONFIG_PATH:-./config.example.yaml}:/app/config.yaml:ro
     restart: unless-stopped

@@ -4,7 +4,7 @@ FROM node:22-slim AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts && npm rebuild better-sqlite3
 
 COPY tsconfig.json ./
 COPY src/ src/
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npx playwright install-deps chromium 2>/dev/null || true
+RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3 && npx playwright install-deps chromium 2>/dev/null || true
 
 COPY --from=builder /app/dist dist/
 COPY config.example.yaml ./
