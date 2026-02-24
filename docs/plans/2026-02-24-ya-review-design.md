@@ -10,13 +10,14 @@
 
 ## Overview
 
-`ya-review` is a TypeScript npm package + CLI tool that scrapes Yandex Maps business reviews, stores them in a local SQLite database, and provides an AI-agent-friendly query interface. It ports the scraping logic from `ya-reviews-mcp` (Python) into a self-contained Node.js package with no Python dependency.
+`ya-review` is a TypeScript npm package + CLI tool that scrapes Yandex Maps business reviews, stores them in a local SQLite or remote PostgreSQL database, and provides an AI-agent-friendly query interface. It ports the scraping logic from `ya-reviews-mcp` (Python) into a self-contained Node.js package with no Python dependency.
 
 Primary use cases:
 1. Track multiple businesses ("mine" and "competitors") and keep reviews in sync
 2. Incremental daily syncs that are fast and lightweight
 3. Compare your business(es) against competitors
 4. Feed structured review data to AI agents via JSON output
+5. Connect to PostgreSQL for BI analytics (Power BI, Metabase, etc.)
 
 ---
 
@@ -36,7 +37,8 @@ Primary use cases:
 | Language | TypeScript (strict, ESM) | Matches hae-vault |
 | Node.js | >= 22.0.0 | Matches hae-vault |
 | CLI framework | Commander.js | Matches hae-vault |
-| Database | better-sqlite3 (raw SQL, WAL mode) | Matches hae-vault; zero-config, no ORM |
+| Database (local) | SQLite via better-sqlite3 | Matches hae-vault; zero-config, no ORM |
+| Database (remote) | PostgreSQL via pg | BI analytics tools (Power BI, Metabase), team use |
 | Browser (default) | Patchright | Anti-detection, same as ya-reviews-mcp default |
 | Browser (alt) | Playwright, remote CDP | Full flexibility, same 3 backends as ya-reviews-mcp |
 | Scheduler | node-cron | For daemon mode; lightweight |
@@ -71,7 +73,10 @@ ya-review/
 │   │   └── helpers.ts            ← Shared CLI utilities (output formatting)
 │   │
 │   ├── db/
-│   │   ├── schema.ts             ← openDb(), CREATE TABLE, migrations
+│   │   ├── driver.ts             ← DbClient interface + factory (SQLite or PostgreSQL)
+│   │   ├── sqlite.ts             ← SQLite adapter (better-sqlite3)
+│   │   ├── postgres.ts           ← PostgreSQL adapter (pg)
+│   │   ├── schema.ts             ← CREATE TABLE DDL for both dialects
 │   │   ├── companies.ts          ← upsertCompany(), listCompanies()
 │   │   ├── reviews.ts            ← upsertReviews(), queryReviews()
 │   │   ├── competitors.ts        ← addCompetitor(), getCompetitors()
@@ -128,7 +133,61 @@ yarev init --backend playwright  # Install Playwright instead
 
 ---
 
+## Database Architecture
+
+### Dual Database Support
+
+| Mode | Backend | Config | Use case |
+|---|---|---|---|
+| **Local** (default) | SQLite via better-sqlite3 | No config needed (or `YAREV_DB_PATH`) | Single user, CLI, AI agent, zero-config |
+| **Remote** | PostgreSQL via `pg` | `YAREV_DB_URL=postgres://user:pass@host/db` | Team use, BI tools (Power BI, Metabase), dashboards |
+
+When `YAREV_DB_URL` is set, yarev uses PostgreSQL. Otherwise it defaults to SQLite at `~/.yarev/reviews.db`.
+
+### DbClient Abstraction
+
+Both backends implement the same `DbClient` interface so all business logic (companies, reviews, competitors, sync-log) is database-agnostic:
+
+```typescript
+interface DbClient {
+  run(sql: string, params?: unknown[]): void;
+  get<T>(sql: string, params?: unknown[]): T | undefined;
+  all<T>(sql: string, params?: unknown[]): T[];
+  exec(sql: string): void;
+  transaction<T>(fn: () => T): T;
+  close(): void;
+}
+```
+
+- `SqliteClient` wraps better-sqlite3 (synchronous)
+- `PgClient` wraps `pg` (synchronous via pg's `Pool.query` — queries are issued sequentially within CLI commands, so async pool isn't needed; we use `pg`'s synchronous-style `.query()`)
+
+The factory in `db/driver.ts` reads config and returns the appropriate client:
+
+```typescript
+function createDbClient(config: Config): DbClient {
+  if (config.dbUrl) return new PgClient(config.dbUrl);
+  return new SqliteClient(config.dbPath);
+}
+```
+
+### SQL Dialect Differences
+
+The schema is nearly identical. Key differences handled in `db/schema.ts`:
+
+| Feature | SQLite | PostgreSQL |
+|---|---|---|
+| Auto-increment PK | `INTEGER PRIMARY KEY` | `SERIAL PRIMARY KEY` |
+| Default timestamp | `DEFAULT (datetime('now'))` | `DEFAULT NOW()` |
+| Upsert | `ON CONFLICT DO UPDATE` | `ON CONFLICT DO UPDATE` (same) |
+| WAL mode | `PRAGMA journal_mode = WAL` | Not needed |
+| Foreign keys | `PRAGMA foreign_keys = ON` | Always on |
+
+---
+
 ## SQL Schema
+
+### SQLite DDL
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -198,6 +257,71 @@ CREATE TABLE sync_log (
   FOREIGN KEY (org_id) REFERENCES companies(org_id)
 );
 ```
+
+### PostgreSQL DDL
+
+```sql
+CREATE TABLE IF NOT EXISTS companies (
+  id SERIAL PRIMARY KEY,
+  org_id TEXT UNIQUE NOT NULL,
+  name TEXT,
+  rating DOUBLE PRECISION,
+  review_count INTEGER,
+  address TEXT,
+  categories TEXT,
+  role TEXT NOT NULL DEFAULT 'tracked',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS company_relations (
+  id SERIAL PRIMARY KEY,
+  company_org_id TEXT NOT NULL,
+  competitor_org_id TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE(company_org_id, competitor_org_id),
+  FOREIGN KEY (company_org_id) REFERENCES companies(org_id),
+  FOREIGN KEY (competitor_org_id) REFERENCES companies(org_id)
+);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  id SERIAL PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  review_key TEXT UNIQUE NOT NULL,
+  author_name TEXT,
+  author_icon_url TEXT,
+  author_profile_url TEXT,
+  date TEXT,
+  text TEXT,
+  stars DOUBLE PRECISION,
+  likes INTEGER NOT NULL DEFAULT 0,
+  dislikes INTEGER NOT NULL DEFAULT 0,
+  review_url TEXT,
+  business_response TEXT,
+  first_seen_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (org_id) REFERENCES companies(org_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_org_id ON reviews(org_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_date ON reviews(date);
+CREATE INDEX IF NOT EXISTS idx_reviews_stars ON reviews(stars);
+
+CREATE TABLE IF NOT EXISTS sync_log (
+  id SERIAL PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  sync_type TEXT NOT NULL,
+  reviews_added INTEGER NOT NULL DEFAULT 0,
+  reviews_updated INTEGER NOT NULL DEFAULT 0,
+  started_at TIMESTAMP NOT NULL,
+  finished_at TIMESTAMP,
+  status TEXT NOT NULL,
+  error_message TEXT,
+  FOREIGN KEY (org_id) REFERENCES companies(org_id)
+);
+```
+
+---
 
 ### Multiple "mine" Companies Example
 
@@ -418,8 +542,9 @@ const SEL = {
 All via environment variables (matching hae-vault pattern):
 
 ```env
-# Database
-DB_PATH=~/.yarev/reviews.db         # Default SQLite path
+# Database — set YAREV_DB_URL for PostgreSQL, otherwise SQLite is used
+# YAREV_DB_URL=postgres://user:pass@localhost:5432/yarev  # PostgreSQL
+# YAREV_DB_PATH=~/.yarev/reviews.db                      # SQLite (default)
 
 # Browser
 BROWSER_BACKEND=patchright           # patchright | playwright | remote
@@ -478,12 +603,14 @@ Loaded via dotenv from `.env` file. CLI flags override env vars.
   },
   "optionalDependencies": {
     "patchright": "^1.x",
-    "playwright": "^1.x"
+    "playwright": "^1.x",
+    "pg": "^8.x"
   },
   "devDependencies": {
     "typescript": "^5.7",
     "tsx": "^4.x",
     "@types/better-sqlite3": "^7.x",
+    "@types/pg": "^8.x",
     "@types/node": "^22.x"
   }
 }
@@ -499,8 +626,9 @@ Loaded via dotenv from `.env` file. CLI flags override env vars.
 |---|---|---|
 | Language | TypeScript (no Python dependency) | Self-contained npm package, port scraper to TS |
 | Browser default | Patchright | Best anti-detection, matches ya-reviews-mcp recommendation |
-| Database | better-sqlite3 raw SQL | Matches hae-vault, zero-config, fast |
-| ORM | None | Direct SQL, matches hae-vault pattern |
+| Database (local) | SQLite via better-sqlite3 | Matches hae-vault, zero-config, fast |
+| Database (remote) | PostgreSQL via pg | BI tools (Power BI, Metabase), team/multi-machine use |
+| ORM | None | Direct SQL with DbClient abstraction, matches hae-vault pattern |
 | Competitor model | Relational (company_relations table) | Supports multiple "mine" companies, each with own competitors |
 | Sync strategy | Full initial + incremental daily | Fast morning syncs, reliable dedup via review_key |
 | Output | Auto-detect TTY → table, pipe → JSON | AI-friendly by default when consumed programmatically |

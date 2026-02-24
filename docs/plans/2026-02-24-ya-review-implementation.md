@@ -2,11 +2,11 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build `ya-review` (CLI: `yarev`), a TypeScript npm CLI tool that scrapes Yandex Maps reviews, stores them in SQLite, and provides AI-friendly querying with competitor comparison.
+**Goal:** Build `ya-review` (CLI: `yarev`), a TypeScript npm CLI tool that scrapes Yandex Maps reviews, stores them in SQLite (local) or PostgreSQL (remote/BI), and provides AI-friendly querying with competitor comparison.
 
-**Architecture:** Commander.js CLI + better-sqlite3 database + Patchright/Playwright scraper. Ports DOM scraping logic from ya-reviews-mcp (Python) to TypeScript. Follows hae-vault patterns: raw SQL, env config, ESM, strict TypeScript.
+**Architecture:** Commander.js CLI + dual database (SQLite/PostgreSQL via DbClient abstraction) + Patchright/Playwright scraper. Ports DOM scraping logic from ya-reviews-mcp (Python) to TypeScript. Follows hae-vault patterns: raw SQL, env config, ESM, strict TypeScript.
 
-**Tech Stack:** TypeScript 5.7+, Node >= 22, Commander.js, better-sqlite3, Patchright (default) / Playwright / remote CDP, node-cron, tsx, native Node.js test runner.
+**Tech Stack:** TypeScript 5.7+, Node >= 22, Commander.js, better-sqlite3 + pg, Patchright (default) / Playwright / remote CDP, node-cron, tsx, native Node.js test runner.
 
 **Reference projects (read these for patterns):**
 - `/Users/mrkhachaturov/Developer/ya-metrics/hae-vault` — CLI structure, config, DB, output patterns
@@ -68,10 +68,12 @@
   },
   "optionalDependencies": {
     "patchright": "^1.0.0",
-    "playwright": "^1.40.0"
+    "playwright": "^1.40.0",
+    "pg": "^8.13.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
+    "@types/pg": "^8.11.0",
     "@types/node": "^22.10.0",
     "@types/node-cron": "^3.0.11",
     "tsx": "^4.19.0",
@@ -118,7 +120,8 @@ dist/
 **Step 4: Create .env.example**
 
 ```env
-# Database
+# Database — set YAREV_DB_URL for PostgreSQL, otherwise SQLite is used
+# YAREV_DB_URL=postgres://user:pass@localhost:5432/yarev
 # YAREV_DB_PATH=~/.yarev/reviews.db
 
 # Browser backend: patchright (default) | playwright | remote
@@ -248,6 +251,7 @@ if (existsSync(envFile)) {
 const DEFAULT_DB_PATH = join(homedir(), '.yarev', 'reviews.db');
 
 export const config = {
+  dbUrl:                process.env.YAREV_DB_URL,              // postgres://... — if set, use PostgreSQL
   dbPath:               expandTilde(process.env.YAREV_DB_PATH ?? DEFAULT_DB_PATH),
   browserBackend:       (process.env.BROWSER_BACKEND ?? 'patchright') as BrowserBackend,
   browserWsUrl:         process.env.BROWSER_WS_URL,
@@ -308,7 +312,236 @@ git commit -m "feat: add types, config module with env loading"
 
 ---
 
-## Task 3: Database Schema
+## Task 3: Database Driver Abstraction
+
+**Files:**
+- Create: `src/db/driver.ts`
+- Create: `src/db/sqlite.ts`
+- Create: `src/db/postgres.ts`
+- Create: `tests/db/driver.test.ts`
+
+This task creates the `DbClient` interface that all DB operations use, plus the SQLite and PostgreSQL implementations.
+
+**Step 1: Write the test**
+
+```typescript
+// tests/db/driver.test.ts
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { createDbClient } from '../../src/db/driver.js';
+
+describe('createDbClient', () => {
+  it('creates a SQLite client when no dbUrl is provided', () => {
+    const client = createDbClient({ dbUrl: undefined, dbPath: ':memory:' });
+    assert.ok(client);
+    client.exec('CREATE TABLE test (id INTEGER PRIMARY KEY, val TEXT)');
+    client.run('INSERT INTO test (val) VALUES (?)', ['hello']);
+    const row = client.get<{ val: string }>('SELECT val FROM test WHERE id = 1');
+    assert.equal(row?.val, 'hello');
+    client.close();
+  });
+
+  it('supports transactions', () => {
+    const client = createDbClient({ dbUrl: undefined, dbPath: ':memory:' });
+    client.exec('CREATE TABLE nums (n INTEGER)');
+    client.transaction(() => {
+      client.run('INSERT INTO nums (n) VALUES (?)', [1]);
+      client.run('INSERT INTO nums (n) VALUES (?)', [2]);
+    });
+    const rows = client.all<{ n: number }>('SELECT n FROM nums ORDER BY n');
+    assert.equal(rows.length, 2);
+    client.close();
+  });
+});
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `npx tsx --test tests/db/driver.test.ts`
+Expected: FAIL — module not found
+
+**Step 3: Write DbClient interface and factory**
+
+```typescript
+// src/db/driver.ts
+import type { Config } from '../config.js';
+
+export interface DbClient {
+  run(sql: string, params?: unknown[]): void;
+  get<T>(sql: string, params?: unknown[]): T | undefined;
+  all<T>(sql: string, params?: unknown[]): T[];
+  exec(sql: string): void;
+  transaction<T>(fn: () => T): T;
+  close(): void;
+  readonly dialect: 'sqlite' | 'postgres';
+}
+
+export function createDbClient(cfg: Pick<Config, 'dbUrl' | 'dbPath'>): DbClient {
+  if (cfg.dbUrl) {
+    // Lazy-load postgres to keep it optional
+    const { PgClient } = require('./postgres.js') as typeof import('./postgres.js');
+    return new PgClient(cfg.dbUrl);
+  }
+  const { SqliteClient } = require('./sqlite.js') as typeof import('./sqlite.js');
+  return new SqliteClient(cfg.dbPath);
+}
+```
+
+**Note:** Use dynamic `import()` instead of `require()` in the actual implementation since this is ESM. The implementation should handle lazy imports properly.
+
+**Step 4: Write SqliteClient**
+
+```typescript
+// src/db/sqlite.ts
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import type { DbClient } from './driver.js';
+
+export class SqliteClient implements DbClient {
+  readonly dialect = 'sqlite' as const;
+  private db: Database.Database;
+
+  constructor(dbPath: string) {
+    if (dbPath !== ':memory:') {
+      mkdirSync(dirname(dbPath), { recursive: true });
+    }
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
+  }
+
+  run(sql: string, params: unknown[] = []): void {
+    this.db.prepare(sql).run(...params);
+  }
+
+  get<T>(sql: string, params: unknown[] = []): T | undefined {
+    return this.db.prepare(sql).get(...params) as T | undefined;
+  }
+
+  all<T>(sql: string, params: unknown[] = []): T[] {
+    return this.db.prepare(sql).all(...params) as T[];
+  }
+
+  exec(sql: string): void {
+    this.db.exec(sql);
+  }
+
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
+  close(): void {
+    this.db.close();
+  }
+}
+```
+
+**Step 5: Write PgClient stub (lazy-loaded, optional)**
+
+```typescript
+// src/db/postgres.ts
+import type { DbClient } from './driver.js';
+
+export class PgClient implements DbClient {
+  readonly dialect = 'postgres' as const;
+  private pool: any;
+
+  constructor(connectionString: string) {
+    try {
+      const pg = require('pg');
+      // Use Pool in synchronous-like mode for CLI usage
+      this.pool = new pg.Pool({ connectionString });
+    } catch {
+      throw new Error(
+        'pg is not installed. Install with: npm install pg\n' +
+        'Or remove YAREV_DB_URL to use SQLite.'
+      );
+    }
+  }
+
+  run(sql: string, params: unknown[] = []): void {
+    // pg uses $1, $2 placeholders — convert from ? style
+    const pgSql = this.convertPlaceholders(sql);
+    this.execSync(pgSql, params);
+  }
+
+  get<T>(sql: string, params: unknown[] = []): T | undefined {
+    const pgSql = this.convertPlaceholders(sql);
+    const rows = this.querySync<T>(pgSql, params);
+    return rows[0];
+  }
+
+  all<T>(sql: string, params: unknown[] = []): T[] {
+    const pgSql = this.convertPlaceholders(sql);
+    return this.querySync<T>(pgSql, params);
+  }
+
+  exec(sql: string): void {
+    this.execSync(sql, []);
+  }
+
+  transaction<T>(fn: () => T): T {
+    this.execSync('BEGIN', []);
+    try {
+      const result = fn();
+      this.execSync('COMMIT', []);
+      return result;
+    } catch (err) {
+      this.execSync('ROLLBACK', []);
+      throw err;
+    }
+  }
+
+  close(): void {
+    this.pool.end();
+  }
+
+  private convertPlaceholders(sql: string): string {
+    let i = 0;
+    return sql.replace(/\?/g, () => `$${++i}`);
+  }
+
+  private execSync(sql: string, params: unknown[]): void {
+    // Use synchronous pattern via deasync or child_process
+    // For v1, use pg's promise-based API with top-level await workaround
+    // This will be refined in implementation
+    this.pool.query(sql, params);
+  }
+
+  private querySync<T>(sql: string, params: unknown[]): T[] {
+    // Placeholder — real implementation needs sync wrapper
+    const result = this.pool.query(sql, params);
+    return result.rows;
+  }
+}
+```
+
+**Implementation note:** The PgClient needs careful handling since `pg` is async but our DbClient interface is synchronous (to match better-sqlite3's sync API and hae-vault patterns). Options:
+1. Make DbClient async (changes all call sites)
+2. Use `execSync` with `child_process` to run PG queries
+3. Use `pg-native` for sync queries
+4. Make the CLI commands async where they use DB operations
+
+**Recommended:** Make all DB operations async in the interface. CLI commands already support async actions (Commander.js handles promises). This is the cleanest approach and avoids sync hacks.
+
+The actual implementation will refine this — the key point is the abstraction exists from the start.
+
+**Step 6: Run test to verify it passes (SQLite path)**
+
+Run: `npx tsx --test tests/db/driver.test.ts`
+Expected: PASS
+
+**Step 7: Commit**
+
+```bash
+git add src/db/driver.ts src/db/sqlite.ts src/db/postgres.ts tests/db/driver.test.ts
+git commit -m "feat: database driver abstraction — SQLite + PostgreSQL clients"
+```
+
+---
+
+## Task 4: Database Schema
 
 **Files:**
 - Create: `src/db/schema.ts`
@@ -451,7 +684,7 @@ git commit -m "feat: database schema — companies, reviews, relations, sync_log
 
 ---
 
-## Task 4: Database Operations — Companies
+## Task 5: Database Operations — Companies
 
 **Files:**
 - Create: `src/db/companies.ts`
@@ -617,7 +850,7 @@ git commit -m "feat: company CRUD — upsert, get, list, remove"
 
 ---
 
-## Task 5: Database Operations — Reviews
+## Task 6: Database Operations — Reviews
 
 **Files:**
 - Create: `src/db/reviews.ts`
@@ -857,7 +1090,7 @@ git commit -m "feat: review upsert with dedup keys + query with filters"
 
 ---
 
-## Task 6: Database Operations — Competitors and Sync Log
+## Task 7: Database Operations — Competitors and Sync Log
 
 **Files:**
 - Create: `src/db/competitors.ts`
@@ -1053,7 +1286,7 @@ git commit -m "feat: competitor relations + sync log DB operations"
 
 ---
 
-## Task 7: Scraper — Selectors and Types
+## Task 8: Scraper — Selectors and Types
 
 **Files:**
 - Create: `src/scraper/selectors.ts`
@@ -1115,7 +1348,7 @@ git commit -m "feat: port CSS selectors from ya-reviews-mcp"
 
 ---
 
-## Task 8: Scraper — Browser Lifecycle
+## Task 9: Scraper — Browser Lifecycle
 
 **Files:**
 - Create: `src/scraper/browser.ts`
@@ -1242,7 +1475,7 @@ git commit -m "feat: browser lifecycle — patchright/playwright/remote backends
 
 ---
 
-## Task 9: Scraper — Review Parsing and Company Info
+## Task 10: Scraper — Review Parsing and Company Info
 
 **Files:**
 - Create: `src/scraper/reviews.ts`
@@ -1553,7 +1786,7 @@ git commit -m "feat: port Yandex Maps scraper — review parsing, company info, 
 
 ---
 
-## Task 10: CLI — Output Helpers
+## Task 11: CLI — Output Helpers
 
 **Files:**
 - Create: `src/cli/helpers.ts`
@@ -1603,7 +1836,7 @@ git commit -m "feat: CLI output helpers — JSON/table auto-detect"
 
 ---
 
-## Task 11: CLI — init, track, untrack, companies, status
+## Task 12: CLI — init, track, untrack, companies, status
 
 **Files:**
 - Create: `src/cli/index.ts`
@@ -1887,7 +2120,7 @@ git commit -m "feat: CLI framework — init, track, untrack, companies, status c
 
 ---
 
-## Task 12: CLI — sync Command
+## Task 13: CLI — sync Command
 
 **Files:**
 - Modify: `src/cli/sync.ts` (replace stub)
@@ -2046,7 +2279,7 @@ git commit -m "feat: sync command — full + incremental scraping with upsert"
 
 ---
 
-## Task 13: CLI — reviews, query, competitor, compare
+## Task 14: CLI — reviews, query, competitor, compare
 
 **Files:**
 - Modify: `src/cli/reviews.ts` (replace stub)
@@ -2307,7 +2540,7 @@ git commit -m "feat: reviews, query, competitor, compare CLI commands"
 
 ---
 
-## Task 14: CLI — daemon Command
+## Task 15: CLI — daemon Command
 
 **Files:**
 - Modify: `src/cli/daemon.ts` (replace stub)
@@ -2432,7 +2665,7 @@ git commit -m "feat: daemon command — scheduled sync with node-cron"
 
 ---
 
-## Task 15: Integration Test and Final Polish
+## Task 16: Integration Test and Final Polish
 
 **Files:**
 - Create: `tests/cli/help.test.ts`
@@ -2486,7 +2719,7 @@ git commit -m "feat: smoke test for CLI help + version"
 
 ---
 
-## Task 16: Run Full Test Suite and Final Verification
+## Task 17: Run Full Test Suite and Final Verification
 
 **Step 1: Run all unit tests**
 
@@ -2524,19 +2757,20 @@ git commit -m "chore: final verification — all tests pass, project builds"
 |------|---------------|-----------------|
 | 1 | Project scaffolding | 8 |
 | 2 | Types + config | 5 |
-| 3 | DB schema | 5 |
-| 4 | Companies CRUD | 5 |
-| 5 | Reviews upsert + query | 5 |
-| 6 | Competitors + sync log | 7 |
-| 7 | Scraper selectors | 2 |
-| 8 | Browser lifecycle | 2 |
-| 9 | Scraper (reviews + company) | 4 |
-| 10 | Output helpers | 2 |
-| 11 | CLI: init, track, untrack, companies, status | 9 |
-| 12 | CLI: sync | 3 |
-| 13 | CLI: reviews, query, competitor, compare | 6 |
-| 14 | CLI: daemon | 3 |
-| 15 | Smoke tests | 5 |
-| 16 | Final verification | 4 |
+| 3 | DB driver abstraction (SQLite + PostgreSQL) | 7 |
+| 4 | DB schema (both dialects) | 5 |
+| 5 | Companies CRUD | 5 |
+| 6 | Reviews upsert + query | 5 |
+| 7 | Competitors + sync log | 7 |
+| 8 | Scraper selectors | 2 |
+| 9 | Browser lifecycle | 2 |
+| 10 | Scraper (reviews + company) | 4 |
+| 11 | Output helpers | 2 |
+| 12 | CLI: init, track, untrack, companies, status | 9 |
+| 13 | CLI: sync | 3 |
+| 14 | CLI: reviews, query, competitor, compare | 6 |
+| 15 | CLI: daemon | 3 |
+| 16 | Smoke tests | 5 |
+| 17 | Final verification | 4 |
 
-**Total: 16 tasks, ~75 steps, ~16 commits**
+**Total: 17 tasks, ~82 steps, ~17 commits**
