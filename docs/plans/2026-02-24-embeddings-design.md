@@ -248,7 +248,12 @@ CREATE TABLE topic_templates (
 yarev apply [--config <path>] [--dry-run]
 
 # Generate embeddings for reviews + topic labels
-yarev embed [--org <id>] [--force]
+yarev embed [--org <id>] [--force] [--batch]
+# --batch  Uses OpenAI Batch API (50% cheaper, async, up to 24h).
+#          Submits JSONL, polls for completion, imports results.
+#          Best for: initial bulk embed, re-embed with --force, model change.
+# Without --batch: synchronous API calls (instant, full price).
+#          Best for: incremental updates after sync.
 
 # Classify reviews into topics
 yarev classify [--org <id>] [--threshold 0.3]
@@ -291,9 +296,46 @@ YAREV_CONFIG=/path/to/config.yaml           # optional, default ~/.yarev/config.
 YAREV_OPENAI_API_KEY=sk-...                 # required for embeddings
 YAREV_EMBEDDING_MODEL=text-embedding-3-small # default
 YAREV_EMBEDDING_BATCH_SIZE=100              # reviews per API call
+YAREV_BATCH_POLL_INTERVAL=30                # seconds between batch status checks
 ```
 
-## 5. Topic Classification Algorithm
+## 5. Embedding Modes
+
+### Sync mode (default)
+
+```
+yarev embed --org <id>
+```
+
+Calls OpenAI `/v1/embeddings` synchronously in batches of 100. Fast, immediate
+results. Best for incremental updates (few new reviews after sync).
+
+### Batch mode (`--batch`)
+
+```
+yarev embed --org <id> --batch
+```
+
+Uses the [OpenAI Batch API](https://platform.openai.com/docs/guides/batch):
+
+1. Collect un-embedded reviews + topic labels
+2. Write JSONL file with embedding requests
+3. Upload to OpenAI via `/v1/files`
+4. Create batch via `/v1/batches`
+5. Poll for completion (default every 30s, configurable via `YAREV_BATCH_POLL_INTERVAL`)
+6. Download results, parse, store embeddings in DB
+7. Clean up uploaded file
+
+**50% cheaper** than sync mode. Completion typically within minutes, guaranteed
+within 24h. Progress shown in terminal.
+
+| | Sync | Batch |
+|---|---|---|
+| Cost | Full price | 50% off |
+| Speed | Seconds | Minutes to hours |
+| Use case | Incremental (few reviews) | Bulk (initial, re-embed, model change) |
+
+## 6. Topic Classification Algorithm
 
 1. Embed all topic labels (parent + subtopic names) via OpenAI API
 2. For each review, compute cosine similarity against all subtopic embeddings
@@ -302,7 +344,7 @@ YAREV_EMBEDDING_BATCH_SIZE=100              # reviews per API call
 
 Each review gets 1-3 subtopic labels. `yarev topics` aggregates by topic hierarchy.
 
-## 6. Competitor Similarity Score
+## 7. Competitor Similarity Score
 
 Computed automatically after embeddings exist:
 
@@ -313,7 +355,7 @@ Computed automatically after embeddings exist:
 
 Stored in `company_relations.similarity_score`, updated by `yarev embed`.
 
-## 7. Implementation Phases
+## 8. Implementation Phases
 
 | Phase | Scope | Depends on |
 |-------|-------|-----------|
@@ -326,7 +368,7 @@ Stored in `company_relations.similarity_score`, updated by `yarev embed`.
 | **7** | sqlite-vec integration | Phase 3 |
 | **8** | pgvector export | Phase 3 |
 
-## 8. Open Questions (resolved)
+## 9. Open Questions (resolved)
 
 | Question | Decision |
 |----------|----------|
