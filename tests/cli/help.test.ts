@@ -14,6 +14,7 @@ describe('yarev CLI', () => {
     assert.ok(output.includes('search'));
     assert.ok(output.includes('trends'));
     assert.ok(output.includes('unanswered'));
+    assert.ok(output.includes('apply'));
   });
 
   it('shows version', () => {
