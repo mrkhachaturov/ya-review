@@ -33,6 +33,11 @@ export const config = {
   scraperRetryDelay:    Number(process.env.SCRAPER_RETRY_DELAY ?? 2.0),
   incrementalWindowSize: Number(process.env.INCREMENTAL_WINDOW_SIZE ?? 50),
   daemonCron:           process.env.DAEMON_CRON ?? '0 8 * * *',
+  yarevConfig:          process.env.YAREV_CONFIG ?? join(homedir(), '.yarev', 'config.yaml'),
+  openaiApiKey:         process.env.YAREV_OPENAI_API_KEY,
+  embeddingModel:       process.env.YAREV_EMBEDDING_MODEL ?? 'text-embedding-3-small',
+  embeddingBatchSize:   Number(process.env.YAREV_EMBEDDING_BATCH_SIZE ?? 100),
+  batchPollInterval:    Number(process.env.YAREV_BATCH_POLL_INTERVAL ?? 30),
 } as const;
 
 export type Config = typeof config;
