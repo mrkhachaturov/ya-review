@@ -13,7 +13,7 @@ function expandTilde(p: string): string {
 
 const envFile = process.env.YAREV_ENV_FILE ?? join(process.cwd(), '.env');
 if (existsSync(envFile)) {
-  dotenvLoad({ path: envFile });
+  dotenvLoad({ path: envFile, quiet: true });
 }
 
 const DEFAULT_DB_PATH = join(homedir(), '.yarev', 'reviews.db');

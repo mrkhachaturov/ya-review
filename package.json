@@ -1,15 +1,28 @@
 {
   "name": "ya-review",
   "version": "0.1.0",
-  "description": "CLI tool for scraping, storing, and querying Yandex Maps business reviews",
+  "description": "CLI tool for scraping, storing, and querying Yandex Maps business reviews with AI topic analysis",
   "type": "module",
   "bin": {
     "yarev": "dist/index.js"
   },
   "main": "./dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrkhachaturov/ya-review.git"
+  },
+  "homepage": "https://github.com/mrkhachaturov/ya-review#readme",
+  "bugs": {
+    "url": "https://github.com/mrkhachaturov/ya-review/issues"
+  },
   "files": [
     "dist/",
-    "README.md"
+    "README.md",
+    "README.ru.md",
+    "docs/scoring-algorithm.md",
+    "docs/scoring-algorithm.ru.md",
+    "config.example.yaml",
+    "config.example.ru.yaml"
   ],
   "scripts": {
     "dev": "tsx src/index.ts",
@@ -28,7 +41,10 @@
     "sqlite",
     "cli",
     "yarev",
-    "business-reviews"
+    "business-reviews",
+    "embeddings",
+    "openai",
+    "topic-analysis"
   ],
   "author": "Ruben Khachaturov <mr.kha4a2rov@protonmail.com>",
   "license": "MIT",
@@ -44,6 +60,14 @@
     "patchright": "^1.0.0",
     "pg": "^8.13.0",
     "playwright": "^1.40.0"
+  },
+  "peerDependencies": {
+    "openai": ">=4.0.0",
+    "yaml": ">=2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": { "optional": true },
+    "yaml": { "optional": true }
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",

@@ -1,5 +1,5 @@
-import { parse } from 'yaml';
 import { readFileSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { YarevConfig, YarevCompanyConfig, YarevTopicConfig } from './types/index.js';
@@ -20,6 +20,13 @@ export function loadYarevConfig(path?: string): YarevConfig {
 }
 
 export function parseYarevConfig(raw: string): YarevConfig {
+  let parse: (input: string) => any;
+  try {
+    const req = createRequire(import.meta.url);
+    ({ parse } = req('yaml'));
+  } catch {
+    throw new Error('yaml package is required for config parsing. Install it: npm install yaml');
+  }
   const doc = parse(raw);
 
   if (!doc?.companies || !Array.isArray(doc.companies)) {
