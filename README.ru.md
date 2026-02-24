@@ -98,7 +98,7 @@ yarev query "SELECT COUNT(*) as cnt FROM reviews WHERE stars >= 4"
 
 ### AI и эмбеддинги
 
-Требуется `YAREV_OPENAI_API_KEY` и `config.yaml` с определением тем. См. [config.example.ru.yaml](config.example.ru.yaml).
+Требуется `YAREV_OPENAI_API_KEY` и `config.yaml` с определением тем. См. [config.example.ru.yaml](config.example.ru.yaml). Как работает скоринг: [Алгоритм скоринга](docs/scoring-algorithm.ru.md).
 
 | Команда | Описание |
 |---------|----------|

@@ -15,5 +15,8 @@ dist/
 # Worktrees
 .worktrees/
 
+# Internal docs (plans, design specs)
+docs/plans/
+
 # Debug
 *.log
