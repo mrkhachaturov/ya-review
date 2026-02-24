@@ -3,34 +3,38 @@ import type { DbClient } from './driver.js';
 export class PgClient implements DbClient {
   readonly dialect = 'postgres' as const;
 
-  constructor(_connectionString: string) {
+  private constructor() {
+    // Use PgClient.connect() to create instances
+  }
+
+  static async connect(_connectionString: string): Promise<PgClient> {
     throw new Error(
       'PostgreSQL support is not yet fully implemented.\n' +
       'Remove YAREV_DB_URL to use SQLite.'
     );
   }
 
-  run(_sql: string, _params: unknown[] = []): void {
+  async run(_sql: string, _params: unknown[] = []): Promise<void> {
     throw new Error('Not implemented');
   }
 
-  get<T>(_sql: string, _params: unknown[] = []): T | undefined {
+  async get<T>(_sql: string, _params: unknown[] = []): Promise<T | undefined> {
     throw new Error('Not implemented');
   }
 
-  all<T>(_sql: string, _params: unknown[] = []): T[] {
+  async all<T>(_sql: string, _params: unknown[] = []): Promise<T[]> {
     throw new Error('Not implemented');
   }
 
-  exec(_sql: string): void {
+  async exec(_sql: string): Promise<void> {
     throw new Error('Not implemented');
   }
 
-  transaction<T>(_fn: () => T): T {
+  async transaction<T>(_fn: () => Promise<T>): Promise<T> {
     throw new Error('Not implemented');
   }
 
-  close(): void {
+  async close(): Promise<void> {
     // no-op
   }
 }

@@ -16,27 +16,35 @@ export class SqliteClient implements DbClient {
     this.db.pragma('foreign_keys = ON');
   }
 
-  run(sql: string, params: unknown[] = []): void {
+  async run(sql: string, params: unknown[] = []): Promise<void> {
     this.db.prepare(sql).run(...params);
   }
 
-  get<T>(sql: string, params: unknown[] = []): T | undefined {
+  async get<T>(sql: string, params: unknown[] = []): Promise<T | undefined> {
     return this.db.prepare(sql).get(...params) as T | undefined;
   }
 
-  all<T>(sql: string, params: unknown[] = []): T[] {
+  async all<T>(sql: string, params: unknown[] = []): Promise<T[]> {
     return this.db.prepare(sql).all(...params) as T[];
   }
 
-  exec(sql: string): void {
+  async exec(sql: string): Promise<void> {
     this.db.exec(sql);
   }
 
-  transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    this.db.exec('BEGIN');
+    try {
+      const result = await fn();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.db.close();
   }
 }
