@@ -18,6 +18,7 @@ import { digestCommand } from './digest.js';
 import { searchCommand } from './search.js';
 import { trendsCommand } from './trends.js';
 import { unansweredCommand } from './unanswered.js';
+import { applyCommand } from './apply.js';
 
 export const program = new Command();
 program
@@ -41,3 +42,4 @@ program.addCommand(digestCommand);
 program.addCommand(searchCommand);
 program.addCommand(trendsCommand);
 program.addCommand(unansweredCommand);
+program.addCommand(applyCommand);
