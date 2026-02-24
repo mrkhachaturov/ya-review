@@ -1,25 +1,20 @@
-import { createRequire } from 'node:module';
 import type { Config } from '../config.js';
 
-const require = createRequire(import.meta.url);
-
 export interface DbClient {
-  run(sql: string, params?: unknown[]): void;
-  get<T>(sql: string, params?: unknown[]): T | undefined;
-  all<T>(sql: string, params?: unknown[]): T[];
-  exec(sql: string): void;
-  transaction<T>(fn: () => T): T;
-  close(): void;
+  run(sql: string, params?: unknown[]): Promise<void>;
+  get<T>(sql: string, params?: unknown[]): Promise<T | undefined>;
+  all<T>(sql: string, params?: unknown[]): Promise<T[]>;
+  exec(sql: string): Promise<void>;
+  transaction<T>(fn: () => Promise<T>): Promise<T>;
+  close(): Promise<void>;
   readonly dialect: 'sqlite' | 'postgres';
 }
 
-export function createDbClient(cfg: Pick<Config, 'dbUrl' | 'dbPath'>): DbClient {
+export async function createDbClient(cfg: Pick<Config, 'dbUrl' | 'dbPath'>): Promise<DbClient> {
   if (cfg.dbUrl) {
-    // PostgreSQL support is a stub for now — requires async refinement
-    throw new Error(
-      'PostgreSQL support is not yet implemented. Remove YAREV_DB_URL to use SQLite.'
-    );
+    const { PgClient } = await import('./postgres.js');
+    return PgClient.connect(cfg.dbUrl);
   }
-  const { SqliteClient } = require('./sqlite.js') as typeof import('./sqlite.js');
+  const { SqliteClient } = await import('./sqlite.js');
   return new SqliteClient(cfg.dbPath);
 }
