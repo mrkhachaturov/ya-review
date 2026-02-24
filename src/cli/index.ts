@@ -22,6 +22,7 @@ import { applyCommand } from './apply.js';
 import { embedCommand } from './embed.js';
 import { classifyCommand } from './classify.js';
 import { topicsCommand } from './topics.js';
+import { similarCommand } from './similar.js';
 
 export const program = new Command();
 program
@@ -49,3 +50,4 @@ program.addCommand(applyCommand);
 program.addCommand(embedCommand);
 program.addCommand(classifyCommand);
 program.addCommand(topicsCommand);
+program.addCommand(similarCommand);
