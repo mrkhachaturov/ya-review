@@ -425,9 +425,23 @@ embeds new topic labels, reclassifies reviews, and computes scores for them.
 
 ```
 yarev score --compare <mine> <competitor>
+
+                              Astra Motors    Fit Service
+  Overall                       7.4 / 10       6.8 / 10
+──────────────────────────────────────────────────────────
+  Персонал и общение             9.1            7.2        ✅ +1.9
+  Комфорт и сервис               8.8            6.5        ✅ +2.3
+  Качество работ                 7.9            7.6           +0.3
+  Время и доступность            6.5            7.1        ❌ -0.6
+  Диагностика и рекомендации     5.8            5.3           +0.5
+  Гарантия и ответственность     5.2            5.9        ❌ -0.7
+  Цены и стоимость               4.2            4.8        ❌ -0.6
 ```
 
-Shows side-by-side topic scores for two companies to see where you win and lose.
+Shows side-by-side topic scores. Delta column highlights where you win (✅)
+and where competitor beats you (❌). Neutral if difference < 0.5.
+
+Also supports `--full` to show subtopic comparison.
 
 ### Storage
 
