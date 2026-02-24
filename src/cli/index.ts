@@ -21,6 +21,7 @@ import { unansweredCommand } from './unanswered.js';
 import { applyCommand } from './apply.js';
 import { embedCommand } from './embed.js';
 import { classifyCommand } from './classify.js';
+import { topicsCommand } from './topics.js';
 
 export const program = new Command();
 program
@@ -47,3 +48,4 @@ program.addCommand(unansweredCommand);
 program.addCommand(applyCommand);
 program.addCommand(embedCommand);
 program.addCommand(classifyCommand);
+program.addCommand(topicsCommand);
