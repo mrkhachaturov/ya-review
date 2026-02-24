@@ -1,0 +1,54 @@
+{
+  "name": "ya-review",
+  "version": "0.1.0",
+  "description": "CLI tool for scraping, storing, and querying Yandex Maps business reviews",
+  "type": "module",
+  "bin": {
+    "yarev": "dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "prepare": "npm run build",
+    "test": "tsx --test tests/**/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "keywords": [
+    "yandex-maps",
+    "reviews",
+    "scraper",
+    "sqlite",
+    "cli",
+    "yarev",
+    "business-reviews"
+  ],
+  "author": "Ruben Khachaturov <mr.kha4a2rov@protonmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "commander": "^12.1.0",
+    "dotenv": "^17.3.1",
+    "node-cron": "^3.0.3"
+  },
+  "optionalDependencies": {
+    "patchright": "^1.0.0",
+    "playwright": "^1.40.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/pg": "^8.11.0",
+    "@types/node": "^22.10.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
