@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbClient } from './driver.js';
 import type { YarevTopicConfig } from '../types/index.js';
 
 export interface TopicRow {
@@ -10,45 +10,43 @@ export interface TopicRow {
   created_at: string;
 }
 
-export function upsertTopics(db: Database.Database, orgId: string, topics: YarevTopicConfig[]): void {
-  clearTopicsForOrg(db, orgId);
+export async function upsertTopics(db: DbClient, orgId: string, topics: YarevTopicConfig[]): Promise<void> {
+  await clearTopicsForOrg(db, orgId);
 
-  const insertParent = db.prepare(`
-    INSERT INTO topic_templates (org_id, parent_id, name) VALUES (?, NULL, ?)
-  `);
-  const insertChild = db.prepare(`
-    INSERT INTO topic_templates (org_id, parent_id, name) VALUES (?, ?, ?)
-  `);
-
-  const run = db.transaction(() => {
+  await db.transaction(async () => {
     for (const topic of topics) {
-      const result = insertParent.run(orgId, topic.name);
-      const parentId = result.lastInsertRowid as number;
+      const row = await db.get<{ id: number }>(
+        'INSERT INTO topic_templates (org_id, parent_id, name) VALUES (?, NULL, ?) RETURNING id',
+        [orgId, topic.name],
+      );
+      const parentId = row!.id;
       for (const sub of topic.subtopics) {
-        insertChild.run(orgId, parentId, sub);
+        await db.run(
+          'INSERT INTO topic_templates (org_id, parent_id, name) VALUES (?, ?, ?)',
+          [orgId, parentId, sub],
+        );
       }
     }
   });
-
-  run();
 }
 
-export function getTopicsForOrg(db: Database.Database, orgId: string): TopicRow[] {
-  return db.prepare('SELECT * FROM topic_templates WHERE org_id = ? ORDER BY id').all(orgId) as TopicRow[];
+export async function getTopicsForOrg(db: DbClient, orgId: string): Promise<TopicRow[]> {
+  return db.all<TopicRow>('SELECT * FROM topic_templates WHERE org_id = ? ORDER BY id', [orgId]);
 }
 
-export function getParentTopics(db: Database.Database, orgId: string): TopicRow[] {
-  return db.prepare(
+export async function getParentTopics(db: DbClient, orgId: string): Promise<TopicRow[]> {
+  return db.all<TopicRow>(
     'SELECT * FROM topic_templates WHERE org_id = ? AND parent_id IS NULL ORDER BY id',
-  ).all(orgId) as TopicRow[];
+    [orgId],
+  );
 }
 
-export function getSubtopics(db: Database.Database, parentId: number): TopicRow[] {
-  return db.prepare('SELECT * FROM topic_templates WHERE parent_id = ? ORDER BY id').all(parentId) as TopicRow[];
+export async function getSubtopics(db: DbClient, parentId: number): Promise<TopicRow[]> {
+  return db.all<TopicRow>('SELECT * FROM topic_templates WHERE parent_id = ? ORDER BY id', [parentId]);
 }
 
-export function clearTopicsForOrg(db: Database.Database, orgId: string): void {
+export async function clearTopicsForOrg(db: DbClient, orgId: string): Promise<void> {
   // Delete children first (FK constraint), then parents
-  db.prepare('DELETE FROM topic_templates WHERE org_id = ? AND parent_id IS NOT NULL').run(orgId);
-  db.prepare('DELETE FROM topic_templates WHERE org_id = ?').run(orgId);
+  await db.run('DELETE FROM topic_templates WHERE org_id = ? AND parent_id IS NOT NULL', [orgId]);
+  await db.run('DELETE FROM topic_templates WHERE org_id = ?', [orgId]);
 }

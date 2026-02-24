@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type { DbClient } from './driver.js';
 import type { Review } from '../types/index.js';
 
 export interface ReviewRow {
@@ -41,53 +41,42 @@ export function reviewKey(
   return 'sha256:' + createHash('sha256').update(raw).digest('hex');
 }
 
-export function upsertReviews(db: Database.Database, orgId: string, reviews: Review[]): UpsertResult {
+export async function upsertReviews(db: DbClient, orgId: string, reviews: Review[]): Promise<UpsertResult> {
   let added = 0;
   let updated = 0;
 
-  const insertStmt = db.prepare(`
-    INSERT INTO reviews (org_id, review_key, author_name, author_icon_url, author_profile_url,
-      date, text, stars, likes, dislikes, review_url, business_response)
-    VALUES (@org_id, @review_key, @author_name, @author_icon_url, @author_profile_url,
-      @date, @text, @stars, @likes, @dislikes, @review_url, @business_response)
-    ON CONFLICT(review_key) DO UPDATE SET
-      text = @text,
-      stars = @stars,
-      likes = @likes,
-      dislikes = @dislikes,
-      business_response = @business_response,
-      updated_at = datetime('now')
-  `);
-
-  const existsStmt = db.prepare('SELECT id FROM reviews WHERE review_key = ?');
-
-  const upsertMany = db.transaction((items: Review[]) => {
-    for (const r of items) {
+  await db.transaction(async () => {
+    for (const r of reviews) {
       const key = reviewKey(orgId, r);
-      const exists = existsStmt.get(key);
-      insertStmt.run({
-        org_id: orgId,
-        review_key: key,
-        author_name: r.author_name,
-        author_icon_url: r.author_icon_url,
-        author_profile_url: r.author_profile_url,
-        date: r.date,
-        text: r.text,
-        stars: r.stars,
-        likes: r.likes,
-        dislikes: r.dislikes,
-        review_url: r.review_url,
-        business_response: r.business_response,
-      });
+      const exists = await db.get<{ id: number }>('SELECT id FROM reviews WHERE review_key = ?', [key]);
+
+      await db.run(
+        `INSERT INTO reviews (org_id, review_key, author_name, author_icon_url, author_profile_url,
+          date, text, stars, likes, dislikes, review_url, business_response)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(review_key) DO UPDATE SET
+          text = ?,
+          stars = ?,
+          likes = ?,
+          dislikes = ?,
+          business_response = ?,
+          updated_at = ?`,
+        [
+          orgId, key, r.author_name, r.author_icon_url, r.author_profile_url,
+          r.date, r.text, r.stars, r.likes, r.dislikes, r.review_url, r.business_response,
+          r.text, r.stars, r.likes, r.dislikes, r.business_response,
+          new Date().toISOString(),
+        ],
+      );
+
       if (exists) updated++; else added++;
     }
   });
 
-  upsertMany(reviews);
   return { added, updated };
 }
 
-export function queryReviews(db: Database.Database, orgId: string, opts: QueryReviewsOpts = {}): ReviewRow[] {
+export async function queryReviews(db: DbClient, orgId: string, opts: QueryReviewsOpts = {}): Promise<ReviewRow[]> {
   const conditions = ['org_id = ?'];
   const params: (string | number)[] = [orgId];
 
@@ -106,5 +95,5 @@ export function queryReviews(db: Database.Database, orgId: string, opts: QueryRe
 
   const where = conditions.join(' AND ');
   const limit = opts.limit ? `LIMIT ${opts.limit}` : '';
-  return db.prepare(`SELECT * FROM reviews WHERE ${where} ORDER BY date DESC ${limit}`).all(...params) as ReviewRow[];
+  return db.all<ReviewRow>(`SELECT * FROM reviews WHERE ${where} ORDER BY date DESC ${limit}`, params);
 }

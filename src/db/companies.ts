@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbClient } from './driver.js';
 import type { CompanyRole } from '../types/index.js';
 
 export interface CompanyRow {
@@ -24,44 +24,52 @@ export interface UpsertCompanyInput {
   role?: CompanyRole;
 }
 
-export function upsertCompany(db: Database.Database, input: UpsertCompanyInput): void {
+export async function upsertCompany(db: DbClient, input: UpsertCompanyInput): Promise<void> {
   const cats = input.categories ? JSON.stringify(input.categories) : null;
-  db.prepare(`
+  const now = new Date().toISOString();
+  await db.run(`
     INSERT INTO companies (org_id, name, rating, review_count, address, categories, role)
-    VALUES (@org_id, @name, @rating, @review_count, @address, @categories, @role)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(org_id) DO UPDATE SET
-      name = COALESCE(@name, companies.name),
-      rating = COALESCE(@rating, companies.rating),
-      review_count = COALESCE(@review_count, companies.review_count),
-      address = COALESCE(@address, companies.address),
-      categories = COALESCE(@categories, companies.categories),
-      role = @role,
-      updated_at = datetime('now')
-  `).run({
-    org_id: input.org_id,
-    name: input.name ?? null,
-    rating: input.rating ?? null,
-    review_count: input.review_count ?? null,
-    address: input.address ?? null,
-    categories: cats,
-    role: input.role ?? 'tracked',
-  });
+      name = COALESCE(?, companies.name),
+      rating = COALESCE(?, companies.rating),
+      review_count = COALESCE(?, companies.review_count),
+      address = COALESCE(?, companies.address),
+      categories = COALESCE(?, companies.categories),
+      role = ?,
+      updated_at = ?
+  `, [
+    input.org_id,
+    input.name ?? null,
+    input.rating ?? null,
+    input.review_count ?? null,
+    input.address ?? null,
+    cats,
+    input.role ?? 'tracked',
+    input.name ?? null,
+    input.rating ?? null,
+    input.review_count ?? null,
+    input.address ?? null,
+    cats,
+    input.role ?? 'tracked',
+    now,
+  ]);
 }
 
-export function getCompany(db: Database.Database, orgId: string): CompanyRow | undefined {
-  return db.prepare('SELECT * FROM companies WHERE org_id = ?').get(orgId) as CompanyRow | undefined;
+export async function getCompany(db: DbClient, orgId: string): Promise<CompanyRow | undefined> {
+  return db.get<CompanyRow>('SELECT * FROM companies WHERE org_id = ?', [orgId]);
 }
 
-export function listCompanies(db: Database.Database, role?: CompanyRole): CompanyRow[] {
+export async function listCompanies(db: DbClient, role?: CompanyRole): Promise<CompanyRow[]> {
   if (role) {
-    return db.prepare('SELECT * FROM companies WHERE role = ? ORDER BY name').all(role) as CompanyRow[];
+    return db.all<CompanyRow>('SELECT * FROM companies WHERE role = ? ORDER BY name', [role]);
   }
-  return db.prepare('SELECT * FROM companies ORDER BY name').all() as CompanyRow[];
+  return db.all<CompanyRow>('SELECT * FROM companies ORDER BY name');
 }
 
-export function removeCompany(db: Database.Database, orgId: string): void {
-  db.prepare('DELETE FROM reviews WHERE org_id = ?').run(orgId);
-  db.prepare('DELETE FROM company_relations WHERE company_org_id = ? OR competitor_org_id = ?').run(orgId, orgId);
-  db.prepare('DELETE FROM sync_log WHERE org_id = ?').run(orgId);
-  db.prepare('DELETE FROM companies WHERE org_id = ?').run(orgId);
+export async function removeCompany(db: DbClient, orgId: string): Promise<void> {
+  await db.run('DELETE FROM reviews WHERE org_id = ?', [orgId]);
+  await db.run('DELETE FROM company_relations WHERE company_org_id = ? OR competitor_org_id = ?', [orgId, orgId]);
+  await db.run('DELETE FROM sync_log WHERE org_id = ?', [orgId]);
+  await db.run('DELETE FROM companies WHERE org_id = ?', [orgId]);
 }

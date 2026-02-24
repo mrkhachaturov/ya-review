@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbClient } from './driver.js';
 
 export interface SyncLogRow {
   id: number;
@@ -23,24 +23,25 @@ export interface LogSyncInput {
   error_message?: string;
 }
 
-export function logSync(db: Database.Database, input: LogSyncInput): void {
-  db.prepare(`
+export async function logSync(db: DbClient, input: LogSyncInput): Promise<void> {
+  await db.run(`
     INSERT INTO sync_log (org_id, sync_type, reviews_added, reviews_updated, started_at, finished_at, status, error_message)
-    VALUES (@org_id, @sync_type, @reviews_added, @reviews_updated, @started_at, @finished_at, @status, @error_message)
-  `).run({
-    org_id: input.org_id,
-    sync_type: input.sync_type,
-    reviews_added: input.reviews_added,
-    reviews_updated: input.reviews_updated,
-    started_at: input.started_at,
-    finished_at: input.finished_at ?? null,
-    status: input.status,
-    error_message: input.error_message ?? null,
-  });
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    input.org_id,
+    input.sync_type,
+    input.reviews_added,
+    input.reviews_updated,
+    input.started_at,
+    input.finished_at ?? null,
+    input.status,
+    input.error_message ?? null,
+  ]);
 }
 
-export function getLastSync(db: Database.Database, orgId: string): SyncLogRow | undefined {
-  return db.prepare(
-    'SELECT * FROM sync_log WHERE org_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(orgId) as SyncLogRow | undefined;
+export async function getLastSync(db: DbClient, orgId: string): Promise<SyncLogRow | undefined> {
+  return db.get<SyncLogRow>(
+    'SELECT * FROM sync_log WHERE org_id = ? ORDER BY id DESC LIMIT 1',
+    [orgId]
+  );
 }

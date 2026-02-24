@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbClient } from './driver.js';
 import { cosineSimilarity, bufferToFloat32 } from '../embeddings/vectors.js';
 
 export interface StatsResult {
@@ -17,15 +17,20 @@ export interface StatsOpts {
   since?: string;
 }
 
-export function getStats(db: Database.Database, orgId: string, opts: StatsOpts = {}): StatsResult {
-  const company = db.prepare('SELECT name, rating FROM companies WHERE org_id = ?').get(orgId) as
-    { name: string | null; rating: number | null } | undefined;
+export async function getStats(db: DbClient, orgId: string, opts: StatsOpts = {}): Promise<StatsResult> {
+  const company = await db.get<{ name: string | null; rating: number | null }>(
+    'SELECT name, rating FROM companies WHERE org_id = ?',
+    [orgId],
+  );
 
   const sinceClause = opts.since ? ' AND date >= ?' : '';
   const params: (string | number)[] = [orgId];
   if (opts.since) params.push(opts.since);
 
-  const agg = db.prepare(`
+  const agg = await db.get<{
+    total: number; avg_stars: number; responded: number;
+    with_text: number; first_date: string | null; last_date: string | null;
+  }>(`
     SELECT
       COUNT(*) as total,
       COALESCE(AVG(stars), 0) as avg_stars,
@@ -34,16 +39,13 @@ export function getStats(db: Database.Database, orgId: string, opts: StatsOpts =
       MIN(date) as first_date,
       MAX(date) as last_date
     FROM reviews WHERE org_id = ?${sinceClause}
-  `).get(...params) as {
-    total: number; avg_stars: number; responded: number;
-    with_text: number; first_date: string | null; last_date: string | null;
-  };
+  `, params);
 
-  const distRows = db.prepare(`
+  const distRows = await db.all<{ star: number; cnt: number }>(`
     SELECT CAST(ROUND(stars) AS INTEGER) as star, COUNT(*) as cnt
     FROM reviews WHERE org_id = ?${sinceClause}
     GROUP BY CAST(ROUND(stars) AS INTEGER)
-  `).all(...params) as { star: number; cnt: number }[];
+  `, params);
 
   const dist: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 };
   for (const row of distRows) dist[String(row.star)] = row.cnt;
@@ -52,12 +54,12 @@ export function getStats(db: Database.Database, orgId: string, opts: StatsOpts =
     org_id: orgId,
     name: company?.name ?? null,
     rating: company?.rating ?? null,
-    total_reviews: agg.total,
+    total_reviews: agg!.total,
     star_distribution: dist,
-    avg_stars: Math.round(agg.avg_stars * 100) / 100,
-    response_rate: agg.total > 0 ? Math.round((agg.responded / agg.total) * 100) / 100 : 0,
-    reviews_with_text: agg.with_text,
-    period: { first: agg.first_date, last: agg.last_date },
+    avg_stars: Math.round(agg!.avg_stars * 100) / 100,
+    response_rate: agg!.total > 0 ? Math.round((agg!.responded / agg!.total) * 100) / 100 : 0,
+    reviews_with_text: agg!.with_text,
+    period: { first: agg!.first_date, last: agg!.last_date },
   };
 }
 
@@ -73,7 +75,7 @@ export interface TrendsOpts {
   limit?: number;
 }
 
-export function getTrends(db: Database.Database, orgId: string, opts: TrendsOpts = {}): TrendRow[] {
+export async function getTrends(db: DbClient, orgId: string, opts: TrendsOpts = {}): Promise<TrendRow[]> {
   const groupBy = opts.groupBy ?? 'month';
   const fmt = groupBy === 'week' ? '%Y-W%W'
     : groupBy === 'quarter' ? '%Y-Q' : '%Y-%m';
@@ -108,7 +110,7 @@ export function getTrends(db: Database.Database, orgId: string, opts: TrendsOpts
     `;
   }
 
-  return db.prepare(sql).all(...params) as TrendRow[];
+  return await db.all<TrendRow>(sql, params);
 }
 
 export interface SearchOpts {
@@ -131,11 +133,11 @@ export interface SemanticSearchRow extends SearchRow {
   similarity: number;
 }
 
-export function semanticSearchReviews(
-  db: Database.Database,
+export async function semanticSearchReviews(
+  db: DbClient,
   queryEmbedding: number[],
   opts: SearchOpts = {},
-): SemanticSearchRow[] {
+): Promise<SemanticSearchRow[]> {
   const conditions: string[] = [];
   const params: (string | number)[] = [];
 
@@ -154,14 +156,14 @@ export function semanticSearchReviews(
 
   const where = conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : '';
 
-  const rows = db.prepare(`
+  const rows = await db.all<SearchRow & { text_embedding: Buffer }>(`
     SELECT r.org_id, r.date, r.stars, r.text, r.author_name,
       CASE WHEN r.business_response IS NOT NULL THEN 1 ELSE 0 END as has_response,
       re.text_embedding
     FROM reviews r
     JOIN review_embeddings re ON r.id = re.review_id
     WHERE r.text IS NOT NULL AND r.text != '' ${where}
-  `).all(...params) as (SearchRow & { text_embedding: Buffer })[];
+  `, params);
 
   const scored = rows
     .map(r => {
@@ -183,12 +185,12 @@ export function semanticSearchReviews(
   return scored.slice(0, limit);
 }
 
-export function hasEmbeddings(db: Database.Database): boolean {
-  const row = db.prepare('SELECT COUNT(*) as cnt FROM review_embeddings').get() as { cnt: number };
-  return row.cnt > 0;
+export async function hasEmbeddings(db: DbClient): Promise<boolean> {
+  const row = await db.get<{ cnt: number }>('SELECT COUNT(*) as cnt FROM review_embeddings');
+  return row!.cnt > 0;
 }
 
-export function searchReviews(db: Database.Database, query: string, opts: SearchOpts = {}): SearchRow[] {
+export async function searchReviews(db: DbClient, query: string, opts: SearchOpts = {}): Promise<SearchRow[]> {
   const conditions = ["text LIKE '%' || ? || '%' COLLATE NOCASE"];
   const params: (string | number)[] = [query];
 
@@ -208,10 +210,12 @@ export function searchReviews(db: Database.Database, query: string, opts: Search
   const where = conditions.join(' AND ');
   const limit = opts.limit ? `LIMIT ${opts.limit}` : 'LIMIT 50';
 
-  return db.prepare(`
+  const rows = await db.all<SearchRow & { has_response: number | boolean }>(`
     SELECT org_id, date, stars, text, author_name,
       CASE WHEN business_response IS NOT NULL THEN 1 ELSE 0 END as has_response
     FROM reviews WHERE ${where}
     ORDER BY date DESC ${limit}
-  `).all(...params).map((r: any) => ({ ...r, has_response: !!r.has_response })) as SearchRow[];
+  `, params);
+
+  return rows.map((r) => ({ ...r, has_response: !!r.has_response }));
 }
