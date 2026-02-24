@@ -13,6 +13,11 @@ import { competitorCommand } from './competitor.js';
 import { compareCommand } from './compare.js';
 import { queryCommand } from './query.js';
 import { daemonCommand } from './daemon.js';
+import { statsCommand } from './stats.js';
+import { digestCommand } from './digest.js';
+import { searchCommand } from './search.js';
+import { trendsCommand } from './trends.js';
+import { unansweredCommand } from './unanswered.js';
 
 export const program = new Command();
 program
@@ -31,3 +36,8 @@ program.addCommand(competitorCommand);
 program.addCommand(compareCommand);
 program.addCommand(queryCommand);
 program.addCommand(daemonCommand);
+program.addCommand(statsCommand);
+program.addCommand(digestCommand);
+program.addCommand(searchCommand);
+program.addCommand(trendsCommand);
+program.addCommand(unansweredCommand);
