@@ -1,10 +1,10 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb } from '../../src/db/schema.js';
+import { createTestDb } from '../helpers.js';
 import { applyConfig } from '../../src/cli/apply.js';
 import { getTopicsForOrg } from '../../src/db/topics.js';
 import { getCompany, listCompanies } from '../../src/db/companies.js';
-import type Database from 'better-sqlite3';
+import type { DbClient } from '../../src/db/driver.js';
 import type { YarevConfig } from '../../src/types/index.js';
 
 const TEST_CONFIG: YarevConfig = {
@@ -35,47 +35,48 @@ const TEST_CONFIG: YarevConfig = {
 };
 
 describe('applyConfig', () => {
-  let db: Database.Database;
+  let db: DbClient;
 
-  beforeEach(() => {
-    db = openDb(':memory:');
+  beforeEach(async () => {
+    db = await createTestDb();
   });
 
-  it('creates companies from config', () => {
-    applyConfig(db, TEST_CONFIG);
-    const companies = listCompanies(db);
+  it('creates companies from config', async () => {
+    await applyConfig(db, TEST_CONFIG);
+    const companies = await listCompanies(db);
     assert.equal(companies.length, 2);
     assert.equal(companies.find(c => c.org_id === '111')?.role, 'mine');
   });
 
-  it('sets service_type on companies', () => {
-    applyConfig(db, TEST_CONFIG);
-    const row = db.prepare('SELECT service_type FROM companies WHERE org_id = ?').get('111') as any;
-    assert.equal(row.service_type, 'auto_service');
+  it('sets service_type on companies', async () => {
+    await applyConfig(db, TEST_CONFIG);
+    const row = await db.get<{ service_type: string }>('SELECT service_type FROM companies WHERE org_id = ?', ['111']);
+    assert.equal(row?.service_type, 'auto_service');
   });
 
-  it('creates competitor relations with priority', () => {
-    applyConfig(db, TEST_CONFIG);
-    const rel = db.prepare(
-      'SELECT * FROM company_relations WHERE company_org_id = ? AND competitor_org_id = ?'
-    ).get('111', '222') as any;
+  it('creates competitor relations with priority', async () => {
+    await applyConfig(db, TEST_CONFIG);
+    const rel = await db.get<{ priority: number; notes: string }>(
+      'SELECT * FROM company_relations WHERE company_org_id = ? AND competitor_org_id = ?',
+      ['111', '222']
+    );
     assert.ok(rel);
-    assert.equal(rel.priority, 9);
-    assert.equal(rel.notes, 'Closest');
+    assert.equal(rel!.priority, 9);
+    assert.equal(rel!.notes, 'Closest');
   });
 
-  it('creates topic hierarchy', () => {
-    applyConfig(db, TEST_CONFIG);
-    const topics = getTopicsForOrg(db, '111');
+  it('creates topic hierarchy', async () => {
+    await applyConfig(db, TEST_CONFIG);
+    const topics = await getTopicsForOrg(db, '111');
     assert.equal(topics.length, 5); // 2 parents + 3 children
   });
 
-  it('is idempotent — applying twice does not duplicate', () => {
-    applyConfig(db, TEST_CONFIG);
-    applyConfig(db, TEST_CONFIG);
-    const companies = listCompanies(db);
+  it('is idempotent — applying twice does not duplicate', async () => {
+    await applyConfig(db, TEST_CONFIG);
+    await applyConfig(db, TEST_CONFIG);
+    const companies = await listCompanies(db);
     assert.equal(companies.length, 2);
-    const topics = getTopicsForOrg(db, '111');
+    const topics = await getTopicsForOrg(db, '111');
     assert.equal(topics.length, 5);
   });
 });

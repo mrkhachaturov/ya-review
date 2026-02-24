@@ -6,6 +6,7 @@ import type { DbClient } from './driver.js';
 export class SqliteClient implements DbClient {
   readonly dialect = 'sqlite' as const;
   private db: Database.Database;
+  private txDepth = 0;
 
   constructor(dbPath: string) {
     if (dbPath !== ':memory:') {
@@ -33,13 +34,28 @@ export class SqliteClient implements DbClient {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.db.exec('BEGIN');
+    if (this.txDepth === 0) {
+      this.db.exec('BEGIN');
+    } else {
+      this.db.exec(`SAVEPOINT sp_${this.txDepth}`);
+    }
+    this.txDepth++;
     try {
       const result = await fn();
-      this.db.exec('COMMIT');
+      this.txDepth--;
+      if (this.txDepth === 0) {
+        this.db.exec('COMMIT');
+      } else {
+        this.db.exec(`RELEASE sp_${this.txDepth}`);
+      }
       return result;
     } catch (e) {
-      this.db.exec('ROLLBACK');
+      this.txDepth--;
+      if (this.txDepth === 0) {
+        this.db.exec('ROLLBACK');
+      } else {
+        this.db.exec(`ROLLBACK TO sp_${this.txDepth}`);
+      }
       throw e;
     }
   }

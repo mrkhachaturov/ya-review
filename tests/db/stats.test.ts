@@ -1,10 +1,10 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb } from '../../src/db/schema.js';
+import { createTestDb } from '../helpers.js';
 import { upsertCompany } from '../../src/db/companies.js';
 import { upsertReviews } from '../../src/db/reviews.js';
 import { getStats, getTrends, searchReviews } from '../../src/db/stats.js';
-import type Database from 'better-sqlite3';
+import type { DbClient } from '../../src/db/driver.js';
 
 const review = (overrides: Record<string, unknown> = {}) => ({
   author_name: 'Test', author_icon_url: null, author_profile_url: null,
@@ -14,22 +14,22 @@ const review = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('getStats', () => {
-  let db: Database.Database;
+  let db: DbClient;
 
-  beforeEach(() => {
-    db = openDb(':memory:');
-    upsertCompany(db, { org_id: '111', name: 'Test Co', rating: 4.5, role: 'mine' });
+  beforeEach(async () => {
+    db = await createTestDb();
+    await upsertCompany(db, { org_id: '111', name: 'Test Co', rating: 4.5, role: 'mine' });
   });
 
-  it('returns star distribution and averages correctly', () => {
-    upsertReviews(db, '111', [
+  it('returns star distribution and averages correctly', async () => {
+    await upsertReviews(db, '111', [
       review({ stars: 5, review_url: 'http://r/1', business_response: 'Thanks' }),
       review({ stars: 4, review_url: 'http://r/2', text: '' }),
       review({ stars: 3, review_url: 'http://r/3' }),
       review({ stars: 1, review_url: 'http://r/4', text: null }),
     ]);
 
-    const stats = getStats(db, '111');
+    const stats = await getStats(db, '111');
 
     assert.equal(stats.org_id, '111');
     assert.equal(stats.name, 'Test Co');
@@ -43,9 +43,9 @@ describe('getStats', () => {
     assert.equal(stats.period.last, '2025-06-01');
   });
 
-  it('returns zeros for org with no reviews', () => {
-    upsertCompany(db, { org_id: '222', name: 'Empty Co', role: 'tracked' });
-    const stats = getStats(db, '222');
+  it('returns zeros for org with no reviews', async () => {
+    await upsertCompany(db, { org_id: '222', name: 'Empty Co', role: 'tracked' });
+    const stats = await getStats(db, '222');
 
     assert.equal(stats.total_reviews, 0);
     assert.equal(stats.avg_stars, 0);
@@ -56,14 +56,14 @@ describe('getStats', () => {
     assert.equal(stats.period.last, null);
   });
 
-  it('filters by since date', () => {
-    upsertReviews(db, '111', [
+  it('filters by since date', async () => {
+    await upsertReviews(db, '111', [
       review({ stars: 5, date: '2025-01-01', review_url: 'http://r/1' }),
       review({ stars: 3, date: '2025-06-01', review_url: 'http://r/2' }),
       review({ stars: 4, date: '2025-07-01', review_url: 'http://r/3' }),
     ]);
 
-    const stats = getStats(db, '111', { since: '2025-06-01' });
+    const stats = await getStats(db, '111', { since: '2025-06-01' });
 
     assert.equal(stats.total_reviews, 2);
     assert.equal(stats.avg_stars, 3.5);
@@ -73,12 +73,12 @@ describe('getStats', () => {
 });
 
 describe('getTrends', () => {
-  let db: Database.Database;
+  let db: DbClient;
 
-  beforeEach(() => {
-    db = openDb(':memory:');
-    upsertCompany(db, { org_id: '111', name: 'Test Co', role: 'mine' });
-    upsertReviews(db, '111', [
+  beforeEach(async () => {
+    db = await createTestDb();
+    await upsertCompany(db, { org_id: '111', name: 'Test Co', role: 'mine' });
+    await upsertReviews(db, '111', [
       review({ stars: 5, date: '2025-01-15', review_url: 'http://r/1' }),
       review({ stars: 4, date: '2025-01-20', review_url: 'http://r/2' }),
       review({ stars: 3, date: '2025-02-10', review_url: 'http://r/3' }),
@@ -86,8 +86,8 @@ describe('getTrends', () => {
     ]);
   });
 
-  it('groups by month by default', () => {
-    const trends = getTrends(db, '111');
+  it('groups by month by default', async () => {
+    const trends = await getTrends(db, '111');
 
     assert.equal(trends.length, 3);
     // DESC order: 2025-03, 2025-02, 2025-01
@@ -104,8 +104,8 @@ describe('getTrends', () => {
     assert.equal(trends[2].avg_stars, 4.5);
   });
 
-  it('groups by week', () => {
-    const trends = getTrends(db, '111', { groupBy: 'week' });
+  it('groups by week', async () => {
+    const trends = await getTrends(db, '111', { groupBy: 'week' });
 
     // Each review is in a different week, so we get multiple entries
     assert.ok(trends.length >= 3);
@@ -114,8 +114,8 @@ describe('getTrends', () => {
     }
   });
 
-  it('respects limit', () => {
-    const trends = getTrends(db, '111', { limit: 2 });
+  it('respects limit', async () => {
+    const trends = await getTrends(db, '111', { limit: 2 });
     assert.equal(trends.length, 2);
     // Should get the two most recent periods (DESC order)
     assert.equal(trends[0].period, '2025-03');
@@ -124,46 +124,46 @@ describe('getTrends', () => {
 });
 
 describe('searchReviews', () => {
-  let db: Database.Database;
+  let db: DbClient;
 
-  beforeEach(() => {
-    db = openDb(':memory:');
-    upsertCompany(db, { org_id: '111', name: 'Alpha', role: 'mine' });
-    upsertCompany(db, { org_id: '222', name: 'Beta', role: 'tracked' });
-    upsertReviews(db, '111', [
+  beforeEach(async () => {
+    db = await createTestDb();
+    await upsertCompany(db, { org_id: '111', name: 'Alpha', role: 'mine' });
+    await upsertCompany(db, { org_id: '222', name: 'Beta', role: 'tracked' });
+    await upsertReviews(db, '111', [
       review({ text: 'Great coffee and atmosphere', stars: 5, review_url: 'http://r/1' }),
       review({ text: 'Terrible service', stars: 1, review_url: 'http://r/2' }),
     ]);
-    upsertReviews(db, '222', [
+    await upsertReviews(db, '222', [
       review({ text: 'Amazing coffee selection', stars: 4, review_url: 'http://r/3' }),
     ]);
   });
 
-  it('searches across all orgs by default', () => {
-    const results = searchReviews(db, 'coffee');
+  it('searches across all orgs by default', async () => {
+    const results = await searchReviews(db, 'coffee');
     assert.equal(results.length, 2);
     const orgIds = results.map(r => r.org_id).sort();
     assert.deepEqual(orgIds, ['111', '222']);
   });
 
-  it('filters by org_id', () => {
-    const results = searchReviews(db, 'coffee', { orgId: '111' });
+  it('filters by org_id', async () => {
+    const results = await searchReviews(db, 'coffee', { orgId: '111' });
     assert.equal(results.length, 1);
     assert.equal(results[0].org_id, '111');
   });
 
-  it('is case-insensitive', () => {
-    const lower = searchReviews(db, 'coffee');
-    const upper = searchReviews(db, 'COFFEE');
-    const mixed = searchReviews(db, 'Coffee');
+  it('is case-insensitive', async () => {
+    const lower = await searchReviews(db, 'coffee');
+    const upper = await searchReviews(db, 'COFFEE');
+    const mixed = await searchReviews(db, 'Coffee');
 
     assert.equal(lower.length, 2);
     assert.equal(upper.length, 2);
     assert.equal(mixed.length, 2);
   });
 
-  it('returns empty for no match', () => {
-    const results = searchReviews(db, 'nonexistent-query-xyz');
+  it('returns empty for no match', async () => {
+    const results = await searchReviews(db, 'nonexistent-query-xyz');
     assert.equal(results.length, 0);
   });
 });
