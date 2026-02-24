@@ -365,25 +365,11 @@ of reviews in that topic. Topics mentioned more often have more influence.
 
 ### Output
 
-Both main topics and subtopics are scored. Default shows main topics only;
-`--detailed` adds subtopic breakdown.
+Both main topics and subtopics are scored and shown by default, since
+embeddings already process all levels.
 
 ```
 yarev score <org_id>
-
-Astra Motors                           AI Score: 7.4 / 10
-──────────────────────────────────────────────────────────
-  Персонал и общение                   9.1 / 10  (156 reviews)
-  Комфорт и сервис                     8.8 / 10  (67 reviews)
-  Качество работ                       7.9 / 10  (134 reviews)
-  Время и доступность                  6.5 / 10  (89 reviews)
-  Диагностика и рекомендации           5.8 / 10  (72 reviews)
-  Гарантия и ответственность           5.2 / 10  (31 reviews)  ⚠ low confidence
-  Цены и стоимость                     4.2 / 10  (187 reviews)
-```
-
-```
-yarev score <org_id> --detailed
 
 Astra Motors                           AI Score: 7.4 / 10
 ──────────────────────────────────────────────────────────
@@ -399,6 +385,18 @@ Astra Motors                           AI Score: 7.4 / 10
     Переделки и возвраты               7.1
     Повреждение автомобиля             6.8
     Незавершённые работы                6.5
+  Время и доступность                  6.5 / 10  (89 reviews)
+    Скорость выполнения работ          7.0
+    Время ожидания по записи           6.3
+    Запись и дозвон                    6.1
+    Отказ в обслуживании               5.4
+  Диагностика и рекомендации           5.8 / 10  (72 reviews)
+    Объяснение найденных проблем       6.5
+    Честность диагностики              5.6
+    Навязывание лишних работ            4.9
+  Гарантия и ответственность           5.2 / 10  (31 reviews)  ⚠ low confidence
+    Гарантия на работы                 5.4
+    Реакция на рекламацию              4.8
   Цены и стоимость                     4.2 / 10  (187 reviews)
     Соотношение цена/качество          5.1
     Стоимость работ (нормо-час)        4.5
