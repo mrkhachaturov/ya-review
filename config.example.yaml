@@ -1,0 +1,114 @@
+# Example yarev config — ~/.yarev/config.yaml
+# Single source of truth for companies, competitors, and topics.
+# Apply with: yarev apply [--config path/to/this/file]
+
+companies:
+  # ─── Your business (auto service) ───
+  - org_id: "1000000001"
+    name: My Auto Service
+    role: mine
+    service_type: auto_service
+    competitors:
+      - org_id: "2000000001"
+        priority: 9
+        notes: "Closest competitor, same area, similar prices"
+      - org_id: "2000000002"
+        priority: 5
+        notes: "Same city, premium segment"
+    topics:
+      - name: Pricing
+        subtopics:
+          - Labor cost (per hour)
+          - Parts markup
+          - Value for money
+          - Refusal to use customer-supplied parts
+
+      - name: Work Quality
+        subtopics:
+          - Repair quality
+          - Rework and returns
+          - Vehicle damage during service
+          - Incomplete work
+
+      - name: Diagnostics & Recommendations
+        subtopics:
+          - Honest diagnostics
+          - Upselling unnecessary work
+          - Explaining found issues
+
+      - name: Staff & Communication
+        subtopics:
+          - Politeness and attitude
+          - Consulting and explanations
+          - Mechanic competence
+
+      - name: Time & Availability
+        subtopics:
+          - Appointment wait time
+          - Work completion speed
+          - Booking and phone availability
+          - Service refusal
+
+      - name: Warranty & Accountability
+        subtopics:
+          - Warranty on work
+          - Handling complaints
+
+      - name: Comfort & Service
+        subtopics:
+          - Waiting area
+          - Process transparency (video monitoring)
+
+  # ─── Competitor (inherits topics from same service_type) ───
+  - org_id: "2000000001"
+    name: Competitor Auto
+    role: competitor
+    service_type: auto_service
+    topics: inherit   # reuses topics from the first auto_service company
+
+  # ─── Your business (car wash / detailing) ───
+  - org_id: "1000000002"
+    name: My Car Wash
+    role: mine
+    service_type: car_wash
+    topics:
+      - name: Wash Quality
+        subtopics:
+          - Cleanliness result
+          - Streaks and missed spots
+          - Two-phase wash
+          - Interior dry cleaning
+
+      - name: Detailing & Extras
+        subtopics:
+          - Polishing
+          - Paint protection film
+          - Element painting
+          - Tire blackening and wax
+
+      - name: Pricing
+        subtopics:
+          - Wash cost
+          - Extra services cost
+          - Comparison with competitors
+
+      - name: Time & Availability
+        subtopics:
+          - Wait time
+          - Wash duration
+          - Operating hours
+          - Bay occupancy
+
+      - name: Staff
+        subtopics:
+          - Politeness
+          - Feedback and problem resolution
+
+      - name: Comfort
+        subtopics:
+          - Waiting area
+          - Video of wash process
+
+embeddings:
+  model: text-embedding-3-small
+  batch_size: 100
