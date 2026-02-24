@@ -23,6 +23,7 @@ import { embedCommand } from './embed.js';
 import { classifyCommand } from './classify.js';
 import { topicsCommand } from './topics.js';
 import { similarCommand } from './similar.js';
+import { scoreCommand } from './score.js';
 
 export const program = new Command();
 program
@@ -51,3 +52,4 @@ program.addCommand(embedCommand);
 program.addCommand(classifyCommand);
 program.addCommand(topicsCommand);
 program.addCommand(similarCommand);
+program.addCommand(scoreCommand);
