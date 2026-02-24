@@ -365,11 +365,25 @@ of reviews in that topic. Topics mentioned more often have more influence.
 
 ### Output
 
-Both main topics and subtopics are scored and shown by default, since
-embeddings already process all levels.
+Both main topics and subtopics are scored (embeddings process all levels).
+Default output shows main topics; `--full` adds subtopic breakdown.
 
 ```
 yarev score <org_id>
+
+Astra Motors                           AI Score: 7.4 / 10
+──────────────────────────────────────────────────────────
+  Персонал и общение                   9.1 / 10  (156 reviews)
+  Комфорт и сервис                     8.8 / 10  (67 reviews)
+  Качество работ                       7.9 / 10  (134 reviews)
+  Время и доступность                  6.5 / 10  (89 reviews)
+  Диагностика и рекомендации           5.8 / 10  (72 reviews)
+  Гарантия и ответственность           5.2 / 10  (31 reviews)  ⚠ low confidence
+  Цены и стоимость                     4.2 / 10  (187 reviews)
+```
+
+```
+yarev score <org_id> --full
 
 Astra Motors                           AI Score: 7.4 / 10
 ──────────────────────────────────────────────────────────
