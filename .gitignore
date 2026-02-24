@@ -2,3 +2,15 @@ node_modules/
 dist/
 .env
 *.db
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Debug
+*.log
