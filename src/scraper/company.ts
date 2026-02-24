@@ -12,7 +12,7 @@ export async function parseCompanyInfo(page: any): Promise<CompanyInfo> {
 
   const address = await getText(page, SEL.COMPANY_ADDRESS);
 
-  const catEls = await page.querySelectorAll(SEL.COMPANY_CATEGORIES);
+  const catEls = await page.$$(SEL.COMPANY_CATEGORIES);
   const categories: string[] = [];
   for (const el of catEls) {
     const text = await el.textContent();
@@ -23,14 +23,14 @@ export async function parseCompanyInfo(page: any): Promise<CompanyInfo> {
 }
 
 async function getText(page: any, selector: string): Promise<string | null> {
-  const el = await page.querySelector(selector);
+  const el = await page.$(selector);
   if (!el) return null;
   const text = await el.textContent();
   return text?.trim() || null;
 }
 
 async function getAttr(page: any, selector: string, attr: string): Promise<string | null> {
-  const el = await page.querySelector(selector);
+  const el = await page.$(selector);
   if (!el) return null;
   return await el.getAttribute(attr);
 }

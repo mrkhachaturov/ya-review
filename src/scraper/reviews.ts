@@ -111,30 +111,30 @@ async function expandBusinessResponses(page: any): Promise<void> {
 
 async function parseReviewsFromDom(page: any, orgId: string): Promise<Review[]> {
   await expandBusinessResponses(page);
-  const reviewEls = await page.querySelectorAll(SEL.REVIEW);
+  const reviewEls = await page.$$(SEL.REVIEW);
   const reviews: Review[] = [];
 
   for (const el of reviewEls) {
     // Author name
-    const nameEl = await el.querySelector(SEL.AUTHOR_NAME);
+    const nameEl = await el.$(SEL.AUTHOR_NAME);
     const nameText = nameEl ? await nameEl.textContent() : null;
     const author_name = nameText?.trim() || null;
 
     // Avatar URL from style attribute
-    const avatarEl = await el.querySelector(SEL.AVATAR);
+    const avatarEl = await el.$(SEL.AVATAR);
     const author_icon_url = await extractAvatarUrl(avatarEl);
 
     // Author profile URL + review URL
-    const profileEl = await el.querySelector(SEL.PROFILE_LINK);
+    const profileEl = await el.$(SEL.PROFILE_LINK);
     const author_profile_url = profileEl ? await profileEl.getAttribute('href') : null;
     const review_url = buildReviewUrl(orgId, author_profile_url);
 
     // Date
-    const dateEl = await el.querySelector(SEL.DATE);
+    const dateEl = await el.$(SEL.DATE);
     const date = dateEl ? await dateEl.getAttribute('content') : null;
 
     // Stars — try meta tag first, then count star spans
-    const ratingEl = await el.querySelector(SEL.RATING);
+    const ratingEl = await el.$(SEL.RATING);
     let stars = 0;
     if (ratingEl) {
       const ratingStr = await ratingEl.getAttribute('content');
@@ -144,8 +144,8 @@ async function parseReviewsFromDom(page: any, orgId: string): Promise<Review[]> 
     }
 
     // Text — prefer spoiler container, fall back to body
-    let textContainer = await el.querySelector(SEL.TEXT_SPOILER);
-    if (!textContainer) textContainer = await el.querySelector(SEL.TEXT);
+    let textContainer = await el.$(SEL.TEXT_SPOILER);
+    if (!textContainer) textContainer = await el.$(SEL.TEXT);
     const rawText = textContainer ? await textContainer.textContent() : null;
     const text = rawText?.trim() || null;
 
@@ -169,7 +169,15 @@ async function scrollToLoadMore(page: any, cfg: Config): Promise<void> {
     (() => {
       const reviews = document.querySelectorAll('.business-reviews-card-view__review');
       if (reviews.length > 0) {
-        reviews[reviews.length - 1].scrollIntoView();
+        const last = reviews[reviews.length - 1];
+        last.scrollIntoView({ behavior: 'instant', block: 'end' });
+        // Also scroll the overflow container (Yandex Maps sidebar)
+        const scrollable = last.closest('.scroll__container')
+          || last.closest('[class*="scroll__container"]')
+          || last.closest('.orgpage-reviews-view');
+        if (scrollable) {
+          scrollable.scrollTop = scrollable.scrollHeight;
+        }
       } else {
         window.scrollTo(0, document.body.scrollHeight);
       }
@@ -187,7 +195,7 @@ async function extractAvatarUrl(avatarEl: any): Promise<string | null> {
 }
 
 async function countStars(reviewEl: any): Promise<number> {
-  const starEls = await reviewEl.querySelectorAll('.business-rating-badge-view__stars span');
+  const starEls = await reviewEl.$$('.business-rating-badge-view__stars span');
   let rating = 0;
   for (const star of starEls) {
     const cls = (await star.getAttribute('class')) ?? '';
@@ -199,12 +207,12 @@ async function countStars(reviewEl: any): Promise<number> {
 }
 
 async function extractReactions(reviewEl: any): Promise<{ likes: number; dislikes: number }> {
-  const containers = await reviewEl.querySelectorAll(SEL.REACTIONS_CONTAINER);
+  const containers = await reviewEl.$$(SEL.REACTIONS_CONTAINER);
   let likes = 0;
   let dislikes = 0;
   for (const container of containers) {
     const label = (await container.getAttribute('aria-label')) ?? '';
-    const counterEl = await container.querySelector(SEL.REACTIONS_COUNTER);
+    const counterEl = await container.$(SEL.REACTIONS_COUNTER);
     const countText = counterEl ? await counterEl.textContent() : '0';
     const count = parseInt(countText, 10) || 0;
     if (label.includes('Лайк')) likes = count;
@@ -214,7 +222,7 @@ async function extractReactions(reviewEl: any): Promise<{ likes: number; dislike
 }
 
 async function extractBusinessResponse(reviewEl: any): Promise<string | null> {
-  const bubble = await reviewEl.querySelector(SEL.BIZ_COMMENT_TEXT);
+  const bubble = await reviewEl.$(SEL.BIZ_COMMENT_TEXT);
   if (!bubble) return null;
   const text = await bubble.textContent();
   return text?.trim() || null;
