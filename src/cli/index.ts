@@ -20,6 +20,7 @@ import { trendsCommand } from './trends.js';
 import { unansweredCommand } from './unanswered.js';
 import { applyCommand } from './apply.js';
 import { embedCommand } from './embed.js';
+import { classifyCommand } from './classify.js';
 
 export const program = new Command();
 program
@@ -45,3 +46,4 @@ program.addCommand(trendsCommand);
 program.addCommand(unansweredCommand);
 program.addCommand(applyCommand);
 program.addCommand(embedCommand);
+program.addCommand(classifyCommand);
