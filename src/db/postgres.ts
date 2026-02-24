@@ -2,39 +2,71 @@ import type { DbClient } from './driver.js';
 
 export class PgClient implements DbClient {
   readonly dialect = 'postgres' as const;
+  private pool: any; // pg.Pool
+  private txClient: any | null = null; // active transaction client
 
-  private constructor() {
-    // Use PgClient.connect() to create instances
+  private constructor(pool: any) {
+    this.pool = pool;
   }
 
-  static async connect(_connectionString: string): Promise<PgClient> {
-    throw new Error(
-      'PostgreSQL support is not yet fully implemented.\n' +
-      'Remove YAREV_DB_URL to use SQLite.'
-    );
+  static async connect(connectionString: string): Promise<PgClient> {
+    const pg = await import('pg');
+    const pool = new pg.default.Pool({ connectionString });
+    // Test connection
+    const client = await pool.connect();
+    client.release();
+    return new PgClient(pool);
   }
 
-  async run(_sql: string, _params: unknown[] = []): Promise<void> {
-    throw new Error('Not implemented');
+  private get queryable(): any {
+    return this.txClient ?? this.pool;
   }
 
-  async get<T>(_sql: string, _params: unknown[] = []): Promise<T | undefined> {
-    throw new Error('Not implemented');
+  async run(sql: string, params: unknown[] = []): Promise<void> {
+    const pgSql = this.convertParams(sql);
+    await this.queryable.query(pgSql, params);
   }
 
-  async all<T>(_sql: string, _params: unknown[] = []): Promise<T[]> {
-    throw new Error('Not implemented');
+  async get<T>(sql: string, params: unknown[] = []): Promise<T | undefined> {
+    const pgSql = this.convertParams(sql);
+    const result = await this.queryable.query(pgSql, params);
+    return result.rows[0] as T | undefined;
   }
 
-  async exec(_sql: string): Promise<void> {
-    throw new Error('Not implemented');
+  async all<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+    const pgSql = this.convertParams(sql);
+    const result = await this.queryable.query(pgSql, params);
+    return result.rows as T[];
   }
 
-  async transaction<T>(_fn: () => Promise<T>): Promise<T> {
-    throw new Error('Not implemented');
+  async exec(sql: string): Promise<void> {
+    await this.queryable.query(sql);
+  }
+
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    this.txClient = client;
+    try {
+      await client.query('BEGIN');
+      const result = await fn();
+      await client.query('COMMIT');
+      return result;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      this.txClient = null;
+      client.release();
+    }
   }
 
   async close(): Promise<void> {
-    // no-op
+    await this.pool.end();
+  }
+
+  /** Convert SQLite ? params to PG $1, $2, ... */
+  private convertParams(sql: string): string {
+    let idx = 0;
+    return sql.replace(/\?/g, () => `$${++idx}`);
   }
 }
