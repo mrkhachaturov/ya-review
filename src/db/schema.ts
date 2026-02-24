@@ -70,7 +70,61 @@ export function openDb(dbPath: string): Database.Database {
       error_message TEXT,
       FOREIGN KEY (org_id) REFERENCES companies(org_id)
     );
+
+    CREATE TABLE IF NOT EXISTS topic_templates (
+      id INTEGER PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      parent_id INTEGER,
+      name TEXT NOT NULL,
+      embedding BLOB,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (org_id) REFERENCES companies(org_id),
+      FOREIGN KEY (parent_id) REFERENCES topic_templates(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_topic_templates_org ON topic_templates(org_id);
+
+    CREATE TABLE IF NOT EXISTS review_embeddings (
+      review_id INTEGER PRIMARY KEY REFERENCES reviews(id),
+      model TEXT NOT NULL,
+      text_embedding BLOB NOT NULL,
+      response_embedding BLOB,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS review_topics (
+      id INTEGER PRIMARY KEY,
+      review_id INTEGER NOT NULL REFERENCES reviews(id),
+      topic_id INTEGER NOT NULL REFERENCES topic_templates(id),
+      similarity REAL NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(review_id, topic_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_topics_review ON review_topics(review_id);
+    CREATE INDEX IF NOT EXISTS idx_review_topics_topic ON review_topics(topic_id);
+
+    CREATE TABLE IF NOT EXISTS company_scores (
+      id INTEGER PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES companies(org_id),
+      topic_id INTEGER REFERENCES topic_templates(id),
+      score REAL NOT NULL,
+      review_count INTEGER NOT NULL,
+      confidence TEXT NOT NULL,
+      computed_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(org_id, topic_id)
+    );
   `);
+
+  // Migration: add columns to existing tables (safe for re-runs)
+  const addColumnSafe = (table: string, col: string, type: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some(c => c.name === col)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    }
+  };
+
+  addColumnSafe('companies', 'service_type', 'TEXT');
+  addColumnSafe('company_relations', 'priority', 'INTEGER');
+  addColumnSafe('company_relations', 'notes', 'TEXT');
 
   return db;
 }
