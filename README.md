@@ -24,30 +24,30 @@ yarev init  # creates database + installs browser
 
 ```bash
 # Track your business
-yarev track 1248139252 --role mine --name "My Business"
+yarev track <org_id> --role mine --name "My Business"
 
 # Track a competitor
-yarev track 9876543210 --role competitor --name "Rival Corp"
-yarev competitor add --org 1248139252 --competitor 9876543210
+yarev track <competitor_id> --role competitor --name "Rival Corp"
+yarev competitor add --org <org_id> --competitor <competitor_id>
 
 # Scrape reviews (first run = full, subsequent = incremental)
-yarev sync --org 1248139252 --full
+yarev sync --org <org_id> --full
 yarev sync  # sync all tracked companies
 
 # Get a quick overview
-yarev stats 1248139252
+yarev stats <org_id>
 
 # Analyze reviews
-yarev digest 1248139252 --stars 1-3 --limit 10    # compact negative reviews
+yarev digest <org_id> --stars 1-3 --limit 10    # compact negative reviews
 yarev search "дорого"                               # text search across all orgs
-yarev trends 1248139252                             # monthly review volume
-yarev unanswered 1248139252 --stars 1-3             # need response urgently
+yarev trends <org_id>                             # monthly review volume
+yarev unanswered <org_id> --stars 1-3             # need response urgently
 
 # Compare with competitors
-yarev compare --org 1248139252
+yarev compare --org <org_id>
 
 # Full review data & raw SQL
-yarev reviews 1248139252 --stars 1-3 --since 2025-01-01
+yarev reviews <org_id> --stars 1-3 --since 2025-01-01
 yarev query "SELECT COUNT(*) as cnt FROM reviews WHERE stars >= 4"
 ```
 
