@@ -11,6 +11,20 @@ TypeScript ESM, Node >= 22, SQLite (better-sqlite3), Commander.js CLI, OpenAI em
 - `npx tsc --noEmit` — type-check without emitting
 - `npx tsx --test tests/**/*.test.ts` — run tests directly
 
+## Architecture
+```
+src/
+  cli/            — one file per command (Commander.js)
+  db/             — SQLite schema, CRUD, migrations
+  embeddings/     — OpenAI client, vectors, classify, scoring
+  scraper/        — Patchright/Playwright browser automation
+  types/          — shared TypeScript interfaces
+  config.ts       — env vars loader
+  yaml-config.ts  — YAML config parser
+tests/            — mirrors src/ structure
+docs/             — scoring algorithm docs (EN/RU)
+```
+
 ## Code Patterns
 - ESM: use `createRequire(import.meta.url)` instead of bare `require()`
 - DB: raw SQL with better-sqlite3, no ORM. Schema in `src/db/schema.ts`
@@ -25,14 +39,33 @@ TypeScript ESM, Node >= 22, SQLite (better-sqlite3), Commander.js CLI, OpenAI em
 - Tests live in `tests/` mirroring `src/` structure
 
 ## Key Files
+- `src/db/schema.ts` — SQLite schema, migrations, table creation
+- `src/db/reviews.ts` — review upsert, query, dedup logic
+- `src/db/companies.ts` — company CRUD
+- `src/db/topics.ts` — topic templates CRUD (parent/subtopic hierarchy)
+- `src/db/embeddings.ts` — review/topic embedding storage
+- `src/db/stats.ts` — stats, trends, text/semantic search
 - `src/yaml-config.ts` — YAML config parser with `inherit` topic resolution
 - `src/embeddings/client.ts` — OpenAI embedding client (lazy-init, requires `YAREV_OPENAI_API_KEY`)
 - `src/embeddings/vectors.ts` — cosine similarity, Float32↔Buffer conversion
 - `src/embeddings/classify.ts` — review→topic matching by embedding similarity
 - `src/embeddings/scoring.ts` — AI quality scoring algorithm
-- `src/db/topics.ts` — topic templates CRUD (parent/subtopic hierarchy)
-- `src/db/embeddings.ts` — review/topic embedding storage
+- `src/cli/helpers.ts` — shared CLI utilities (JSON/table output, truncate)
 - `config.example.yaml` / `config.example.ru.yaml` — config examples (EN/RU)
+
+## Environment
+Required in `.env` for AI features:
+- `YAREV_OPENAI_API_KEY=sk-...`
+
+Optional:
+- `YAREV_DB_PATH` — SQLite path (default: `~/.yarev/reviews.db`)
+- `YAREV_CONFIG` — YAML config path (default: `~/.yarev/config.yaml`)
+- `YAREV_EMBEDDING_MODEL` — embedding model (default: `text-embedding-3-small`)
+
+## AI Pipeline (in order)
+```
+yarev apply → yarev embed → yarev classify → yarev topics / yarev score
+```
 
 ## Gotchas
 - `npm install` runs `prepare` → `tsc`. Use `--ignore-scripts` if source is incomplete
