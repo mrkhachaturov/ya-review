@@ -11,6 +11,7 @@ import { scrapeReviews } from '../scraper/reviews.js';
 export const daemonCommand = new Command('daemon')
   .description('Run scheduled sync in the background')
   .option('--cron <expression>', 'Cron expression for schedule', config.daemonCron)
+  .option('--embed-cron <cron>', 'Cron expression for embed pipeline', config.embedCron)
   .action(async (opts) => {
     let nodeCron;
     try {
@@ -95,10 +96,19 @@ export const daemonCommand = new Command('daemon')
       await db.close();
     };
 
+    const runEmbed = async () => {
+      console.log(`[${new Date().toISOString()}] Running embed pipeline...`);
+    };
+
     // Run immediately on start
     await runSync();
 
     // Schedule future runs
     nodeCron.default.schedule(opts.cron, runSync);
     console.log(`Daemon running. Next sync per cron: ${opts.cron}`);
+
+    // Schedule embed pipeline
+    const embedCronExpr = opts.embedCron ?? config.embedCron;
+    nodeCron.default.schedule(embedCronExpr, runEmbed);
+    console.log(`Embed pipeline scheduled. Next run per cron: ${embedCronExpr}`);
   });

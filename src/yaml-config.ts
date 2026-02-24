@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { YarevConfig, YarevCompanyConfig, YarevTopicConfig } from './types/index.js';
+import type { YarevConfig, YarevCompanyConfig, YarevTopicConfig, YarevDaemonConfig } from './types/index.js';
 
 const DEFAULT_CONFIG_PATH = join(homedir(), '.yarev', 'config.yaml');
 
@@ -67,5 +67,12 @@ export function parseYarevConfig(raw: string): YarevConfig {
     batch_size: doc.embeddings?.batch_size ?? 100,
   };
 
-  return { companies, embeddings };
+  const daemon: YarevDaemonConfig = {
+    sync_cron: doc.daemon?.sync_cron,
+    embed_cron: doc.daemon?.embed_cron,
+    embed_on_sync: doc.daemon?.embed_on_sync ?? false,
+    full_sync_on_start: doc.daemon?.full_sync_on_start ?? true,
+  };
+
+  return { companies, embeddings, daemon };
 }

@@ -66,7 +66,15 @@ export interface YarevEmbeddingsConfig {
   batch_size: number;
 }
 
+export interface YarevDaemonConfig {
+  sync_cron?: string;
+  embed_cron?: string;
+  embed_on_sync?: boolean;
+  full_sync_on_start?: boolean;
+}
+
 export interface YarevConfig {
   companies: YarevCompanyConfig[];
   embeddings: YarevEmbeddingsConfig;
+  daemon?: YarevDaemonConfig;
 }
