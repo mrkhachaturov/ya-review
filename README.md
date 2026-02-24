@@ -34,35 +34,55 @@ yarev competitor add --org 1248139252 --competitor 9876543210
 yarev sync --org 1248139252 --full
 yarev sync  # sync all tracked companies
 
-# Query reviews
-yarev reviews 1248139252
-yarev reviews 1248139252 --stars 1-3 --since 2025-01-01
+# Get a quick overview
+yarev stats 1248139252
+
+# Analyze reviews
+yarev digest 1248139252 --stars 1-3 --limit 10    # compact negative reviews
+yarev search "дорого"                               # text search across all orgs
+yarev trends 1248139252                             # monthly review volume
+yarev unanswered 1248139252 --stars 1-3             # need response urgently
 
 # Compare with competitors
 yarev compare --org 1248139252
 
-# Raw SQL
+# Full review data & raw SQL
+yarev reviews 1248139252 --stars 1-3 --since 2025-01-01
 yarev query "SELECT COUNT(*) as cnt FROM reviews WHERE stars >= 4"
-
-# Check sync status
-yarev status
 ```
 
 ## Commands
 
+### Setup & Tracking
+
 | Command | Description |
 |---------|-------------|
 | `init` | Initialize database and install browser |
-| `track <org_id>` | Start tracking an organization |
+| `track <org_id>` | Start tracking an organization (`--role mine\|competitor`) |
 | `untrack <org_id>` | Stop tracking and remove data |
 | `companies` | List tracked companies |
-| `status` | Show sync status |
-| `sync` | Scrape reviews for tracked orgs |
-| `reviews <org_id>` | Query stored reviews |
-| `query <sql>` | Run raw SQL (returns JSON) |
 | `competitor add\|rm\|list` | Manage competitor relationships |
-| `compare --org <id>` | Compare company vs competitors |
-| `daemon` | Scheduled sync via cron |
+
+### Scraping
+
+| Command | Description |
+|---------|-------------|
+| `sync` | Scrape reviews for tracked orgs (`--org`, `--full`) |
+| `status` | Show sync status for all companies |
+| `daemon` | Scheduled sync via cron (`--cron`) |
+
+### Querying & Analysis
+
+| Command | Description |
+|---------|-------------|
+| `reviews <org_id>` | Full review data (`--since`, `--stars`, `--limit`) |
+| `stats <org_id>` | Star distribution, response rate, averages |
+| `digest <org_id>` | Compact listing for AI — date/stars/text only |
+| `search <text>` | Full-text search across all reviews (`--org`) |
+| `trends <org_id>` | Review count & avg rating by month/week/quarter |
+| `unanswered <org_id>` | Reviews without business response |
+| `compare --org <id>` | Side-by-side comparison vs competitors |
+| `query <sql>` | Run raw SQL (returns JSON) |
 
 ## Output
 
