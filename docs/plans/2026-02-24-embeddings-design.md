@@ -365,6 +365,9 @@ of reviews in that topic. Topics mentioned more often have more influence.
 
 ### Output
 
+Both main topics and subtopics are scored. Default shows main topics only;
+`--detailed` adds subtopic breakdown.
+
 ```
 yarev score <org_id>
 
@@ -378,6 +381,33 @@ Astra Motors                           AI Score: 7.4 / 10
   Гарантия и ответственность           5.2 / 10  (31 reviews)  ⚠ low confidence
   Цены и стоимость                     4.2 / 10  (187 reviews)
 ```
+
+```
+yarev score <org_id> --detailed
+
+Astra Motors                           AI Score: 7.4 / 10
+──────────────────────────────────────────────────────────
+  Персонал и общение                   9.1 / 10  (156 reviews)
+    Вежливость и отношение             9.3
+    Консультирование и объяснение      8.9
+    Компетентность мастеров            8.7
+  Комфорт и сервис                     8.8 / 10  (67 reviews)
+    Зона ожидания                      9.0
+    Прозрачность процесса              8.2
+  Качество работ                       7.9 / 10  (134 reviews)
+    Качество ремонта                   8.3
+    Переделки и возвраты               7.1
+    Повреждение автомобиля             6.8
+    Незавершённые работы                6.5
+  Цены и стоимость                     4.2 / 10  (187 reviews)
+    Соотношение цена/качество          5.1
+    Стоимость работ (нормо-час)        4.5
+    Наценка на запчасти                3.1
+    Отказ работать с мат. клиента      2.8
+```
+
+When new topics are added to YAML, `yarev apply` + `yarev classify` automatically
+embeds new topic labels, reclassifies reviews, and computes scores for them.
 
 ### Comparing companies
 
