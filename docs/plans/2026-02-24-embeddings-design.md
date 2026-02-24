@@ -1,0 +1,338 @@
+# Phase B: Embeddings & Semantic Analysis — Design
+
+## Summary
+
+Add semantic embeddings to ya-review for topic classification, semantic search,
+and competitor analysis. Introduce a declarative YAML config as the single source
+of truth for companies, competitors, and topic hierarchies.
+
+## Architecture Overview
+
+```
+config.yaml  ──→  yarev apply  ──→  DB (companies, topics, competitors)
+                                       │
+reviews ──────→  yarev embed   ──→  review_embeddings + topic embeddings
+                                       │
+                 yarev classify ──→  review_topics (review ↔ topic matches)
+                                       │
+           yarev topics / search / similar / compare  ──→  output
+```
+
+**Storage backends:**
+- Primary: SQLite + sqlite-vec (local, works offline)
+- Optional: PostgreSQL + pgvector (external, for Power BI / analytics)
+
+**Embedding model:** OpenAI `text-embedding-3-small` (1536 dimensions, good
+multilingual/Russian support, ~$0.02/1M tokens).
+
+## 1. Declarative YAML Config
+
+**Path resolution:** `$YAREV_CONFIG` → `~/.yarev/config.yaml`
+
+`yarev apply` reads this file and syncs the desired state to the DB — companies,
+competitor relationships, and topic hierarchies. Like `kubectl apply`.
+
+### Example config.yaml
+
+```yaml
+# ~/.yarev/config.yaml
+companies:
+  # ─── Auto service (your company) ───
+  - org_id: "1000000001"
+    name: Мой Автосервис
+    role: mine
+    service_type: auto_service
+    competitors:
+      - org_id: "2000000001"
+        priority: 9
+        notes: "Ближайший конкурент, тот же район, схожие цены"
+      - org_id: "2000000002"
+        priority: 5
+        notes: "Тот же город, но премиум-сегмент"
+    topics:
+      - name: Цены и стоимость
+        subtopics:
+          - Стоимость работ (нормо-час)
+          - Наценка на запчасти
+          - Соотношение цена/качество
+          - Отказ работать с материалами клиента
+      - name: Качество работ
+        subtopics:
+          - Качество ремонта
+          - Переделки и возвраты
+          - Повреждение автомобиля при обслуживании
+          - Незавершённые работы
+      - name: Диагностика и рекомендации
+        subtopics:
+          - Честность диагностики
+          - Навязывание лишних работ
+          - Объяснение найденных проблем
+      - name: Персонал и общение
+        subtopics:
+          - Вежливость и отношение
+          - Консультирование и объяснение
+          - Компетентность мастеров
+      - name: Время и доступность
+        subtopics:
+          - Время ожидания по записи
+          - Скорость выполнения работ
+          - Запись и дозвон
+          - Отказ в обслуживании
+      - name: Гарантия и ответственность
+        subtopics:
+          - Гарантия на работы
+          - Реакция на рекламацию
+      - name: Комфорт и сервис
+        subtopics:
+          - Зона ожидания
+          - Прозрачность процесса (видеонаблюдение)
+
+  # ─── Auto service (competitor) ───
+  - org_id: "2000000001"
+    name: Конкурент Авто
+    role: competitor
+    service_type: auto_service
+    topics: inherit  # inherits topic set from auto_service template above
+
+  # ─── Car wash / detailing (your company) ───
+  - org_id: "1000000002"
+    name: Моя Автомойка
+    role: mine
+    service_type: car_wash
+    topics:
+      - name: Качество мойки
+        subtopics:
+          - Чистота результата
+          - Разводы и недомытые места
+          - Двухфазная мойка
+          - Химчистка салона
+      - name: Детейлинг и доп. услуги
+        subtopics:
+          - Полировка
+          - Бронеплёнка
+          - Покраска элементов
+          - Чернение резины и воск
+      - name: Цены
+        subtopics:
+          - Стоимость мойки
+          - Стоимость доп. услуг
+          - Сравнение с конкурентами
+      - name: Время и доступность
+        subtopics:
+          - Время ожидания
+          - Время выполнения мойки
+          - Режим работы
+          - Загрузка боксов
+      - name: Персонал
+        subtopics:
+          - Вежливость
+          - Обратная связь и решение проблем
+      - name: Комфорт
+        subtopics:
+          - Зона ожидания
+          - Видео процесса мойки
+
+embeddings:
+  model: text-embedding-3-small
+  batch_size: 100
+```
+
+### Topic inheritance
+
+When `topics: inherit`, the company inherits topics from the first company with
+the same `service_type` that has explicit topics defined. This avoids duplicating
+topic lists for competitors of the same type.
+
+## 2. Database Schema
+
+### New tables
+
+```sql
+-- Topic templates from YAML config
+CREATE TABLE topic_templates (
+  id INTEGER PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  parent_id INTEGER,              -- NULL = top-level category, else = subtopic
+  name TEXT NOT NULL,
+  embedding BLOB,                 -- float32[1536], set by `yarev embed`
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (org_id) REFERENCES companies(org_id),
+  FOREIGN KEY (parent_id) REFERENCES topic_templates(id)
+);
+CREATE INDEX idx_topic_templates_org ON topic_templates(org_id);
+
+-- Review embeddings
+CREATE TABLE review_embeddings (
+  review_id INTEGER PRIMARY KEY REFERENCES reviews(id),
+  model TEXT NOT NULL,            -- 'text-embedding-3-small'
+  text_embedding BLOB NOT NULL,   -- float32[1536]
+  response_embedding BLOB,        -- nullable, only when business_response exists
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Review ↔ topic classification
+CREATE TABLE review_topics (
+  id INTEGER PRIMARY KEY,
+  review_id INTEGER NOT NULL REFERENCES reviews(id),
+  topic_id INTEGER NOT NULL REFERENCES topic_templates(id),
+  similarity REAL NOT NULL,       -- cosine similarity 0.0–1.0
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(review_id, topic_id)
+);
+CREATE INDEX idx_review_topics_review ON review_topics(review_id);
+CREATE INDEX idx_review_topics_topic ON review_topics(topic_id);
+```
+
+### Existing table changes
+
+```sql
+-- Extend company_relations with competitor scoring
+ALTER TABLE company_relations ADD COLUMN priority INTEGER;        -- 1-10 (from YAML)
+ALTER TABLE company_relations ADD COLUMN similarity_score REAL;   -- computed from embeddings
+ALTER TABLE company_relations ADD COLUMN notes TEXT;
+
+-- Add service_type to companies
+ALTER TABLE companies ADD COLUMN service_type TEXT;
+```
+
+### sqlite-vec integration
+
+When sqlite-vec is available, create virtual tables for vector search:
+
+```sql
+CREATE VIRTUAL TABLE vec_reviews USING vec0(
+  review_id INTEGER PRIMARY KEY,
+  text_embedding float[1536]
+);
+
+CREATE VIRTUAL TABLE vec_topics USING vec0(
+  topic_id INTEGER PRIMARY KEY,
+  embedding float[1536]
+);
+```
+
+The BLOB columns remain as source-of-truth; vec tables are populated alongside
+them for fast ANN queries.
+
+### pgvector schema (external)
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Mirror of SQLite tables with native vector types
+CREATE TABLE review_embeddings (
+  review_id INTEGER PRIMARY KEY,
+  model TEXT NOT NULL,
+  text_embedding vector(1536) NOT NULL,
+  response_embedding vector(1536),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX ON review_embeddings USING hnsw (text_embedding vector_cosine_ops);
+
+CREATE TABLE topic_templates (
+  id SERIAL PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  parent_id INTEGER REFERENCES topic_templates(id),
+  name TEXT NOT NULL,
+  embedding vector(1536),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+## 3. CLI Commands
+
+### New commands
+
+```bash
+# Apply YAML config to DB
+yarev apply [--config <path>] [--dry-run]
+
+# Generate embeddings for reviews + topic labels
+yarev embed [--org <id>] [--force]
+
+# Classify reviews into topics
+yarev classify [--org <id>] [--threshold 0.3]
+
+# Show topic analysis
+yarev topics <org_id> [--limit 10]
+# Output example:
+#   Цены и стоимость          87 reviews  ★2.4  ↑12%
+#     Наценка на запчасти      34 reviews  ★1.8
+#     Отказ по своим расх.     15 reviews  ★1.5
+#     Стоимость работ          28 reviews  ★2.6
+#     Соотношение цена/кач.    10 reviews  ★3.1
+
+# Find similar reviews
+yarev similar --text "долго ждать" [--org <id>] [--limit 10]
+yarev similar --review <id> [--cross-company]
+```
+
+### Enhanced existing commands
+
+```bash
+# Semantic search (auto-uses embeddings when available)
+yarev search "плохое качество" [--org <id>] [--limit 10]
+
+# Compare with competitor similarity scoring
+yarev compare <org_1> <org_2> [--topic "Цены"]
+```
+
+### Pipeline shortcut
+
+```bash
+# Sync + embed + classify in one go
+yarev sync --org <id> --embed --classify
+```
+
+## 4. Config (.env additions)
+
+```env
+YAREV_CONFIG=/path/to/config.yaml           # optional, default ~/.yarev/config.yaml
+YAREV_OPENAI_API_KEY=sk-...                 # required for embeddings
+YAREV_EMBEDDING_MODEL=text-embedding-3-small # default
+YAREV_EMBEDDING_BATCH_SIZE=100              # reviews per API call
+```
+
+## 5. Topic Classification Algorithm
+
+1. Embed all topic labels (parent + subtopic names) via OpenAI API
+2. For each review, compute cosine similarity against all subtopic embeddings
+3. Assign top-N subtopics where similarity > threshold (default 0.3)
+4. Parent topic is implied by subtopic assignment
+
+Each review gets 1-3 subtopic labels. `yarev topics` aggregates by topic hierarchy.
+
+## 6. Competitor Similarity Score
+
+Computed automatically after embeddings exist:
+
+1. For each company pair, compute average embedding of all their reviews
+2. Cosine similarity between company centroids = `similarity_score`
+3. Also compare topic distributions: companies with similar complaint patterns
+   score higher
+
+Stored in `company_relations.similarity_score`, updated by `yarev embed`.
+
+## 7. Implementation Phases
+
+| Phase | Scope | Depends on |
+|-------|-------|-----------|
+| **1** | YAML config parser + `yarev apply` | — |
+| **2** | Schema migrations (new tables, ALTER) | Phase 1 |
+| **3** | OpenAI embedding client + `yarev embed` | Phase 2 |
+| **4** | Topic classification + `yarev classify` + `yarev topics` | Phase 3 |
+| **5** | Semantic `yarev search` + `yarev similar` | Phase 3 |
+| **6** | Competitor similarity scoring | Phase 3 |
+| **7** | sqlite-vec integration | Phase 3 |
+| **8** | pgvector export | Phase 3 |
+
+## 8. Open Questions (resolved)
+
+| Question | Decision |
+|----------|----------|
+| sqlite-vec vs BLOB? | sqlite-vec primary, BLOB as fallback |
+| One topic set or per-company? | Per-company, defined in YAML |
+| Flat or hierarchical topics? | Hierarchical (parent/subtopic), stored with self-referencing parent_id |
+| Where to store config? | `$YAREV_CONFIG` → `~/.yarev/config.yaml` |
+| Competitor scoring? | Manual priority (YAML) + auto similarity_score (embeddings) |
+| Topic labels language? | Russian (matches review language) |
