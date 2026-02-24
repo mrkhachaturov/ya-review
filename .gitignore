@@ -12,5 +12,8 @@ dist/
 *.swp
 *.swo
 
+# Worktrees
+.worktrees/
+
 # Debug
 *.log
