@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { cosineSimilarity, bufferToFloat32 } from '../embeddings/vectors.js';
 
 export interface StatsResult {
   org_id: string;
@@ -124,6 +125,67 @@ export interface SearchRow {
   text: string | null;
   has_response: boolean;
   author_name: string | null;
+}
+
+export interface SemanticSearchRow extends SearchRow {
+  similarity: number;
+}
+
+export function semanticSearchReviews(
+  db: Database.Database,
+  queryEmbedding: number[],
+  opts: SearchOpts = {},
+): SemanticSearchRow[] {
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (opts.orgId) {
+    conditions.push('r.org_id = ?');
+    params.push(opts.orgId);
+  }
+  if (opts.starsMin != null) {
+    conditions.push('r.stars >= ?');
+    params.push(opts.starsMin);
+  }
+  if (opts.starsMax != null) {
+    conditions.push('r.stars <= ?');
+    params.push(opts.starsMax);
+  }
+
+  const where = conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : '';
+
+  const rows = db.prepare(`
+    SELECT r.org_id, r.date, r.stars, r.text, r.author_name,
+      CASE WHEN r.business_response IS NOT NULL THEN 1 ELSE 0 END as has_response,
+      re.text_embedding
+    FROM reviews r
+    JOIN review_embeddings re ON r.id = re.review_id
+    WHERE r.text IS NOT NULL AND r.text != '' ${where}
+  `).all(...params) as (SearchRow & { text_embedding: Buffer })[];
+
+  const scored = rows
+    .map(r => {
+      const vec = bufferToFloat32(r.text_embedding);
+      const similarity = cosineSimilarity(queryEmbedding, vec);
+      return {
+        org_id: r.org_id,
+        date: r.date,
+        stars: r.stars,
+        text: r.text,
+        author_name: r.author_name,
+        has_response: !!r.has_response,
+        similarity,
+      };
+    })
+    .sort((a, b) => b.similarity - a.similarity);
+
+  const limit = opts.limit ?? 50;
+  return scored.slice(0, limit);
+}
+
+export function hasEmbeddings(db: Database.Database): boolean {
+  const row = db.prepare('SELECT COUNT(*) as cnt FROM review_embeddings').get() as { cnt: number };
+  return row.cnt > 0;
 }
 
 export function searchReviews(db: Database.Database, query: string, opts: SearchOpts = {}): SearchRow[] {
