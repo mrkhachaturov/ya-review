@@ -11,6 +11,7 @@ export const digestCommand = new Command('digest')
   .option('--stars <range>', 'Star range, e.g. 1-3 or 5')
   .option('--limit <n>', 'Max results (default: 50)')
   .option('--no-truncate', 'Show full review text')
+  .option('--responses', 'Include business response text')
   .option('--json', 'Force JSON output')
   .action((orgId: string, opts) => {
     const db = openDb(config.dbPath);
@@ -31,12 +32,19 @@ export const digestCommand = new Command('digest')
     });
 
     const maxLen = opts.truncate === false ? Infinity : 200;
-    const digest = reviews.map(r => ({
-      date: r.date?.split('T')[0] ?? null,
-      stars: r.stars,
-      text: r.text && r.text.length > maxLen ? r.text.slice(0, maxLen) + '…' : r.text,
-      has_response: r.business_response != null,
-    }));
+    const trim = (s: string | null) => s && s.length > maxLen ? s.slice(0, maxLen) + '…' : s;
+    const digest = reviews.map(r => {
+      const item: Record<string, unknown> = {
+        date: r.date?.split('T')[0] ?? null,
+        stars: r.stars,
+        text: trim(r.text),
+        has_response: r.business_response != null,
+      };
+      if (opts.responses && r.business_response) {
+        item.response = trim(r.business_response);
+      }
+      return item;
+    });
 
     if (isJsonMode(opts)) {
       outputJson(digest);
@@ -48,9 +56,9 @@ export const digestCommand = new Command('digest')
       outputTable(
         ['date', 'stars', 'text', 'resp'],
         digest.map(r => [
-          r.date ?? '—',
+          (r.date as string) ?? '—',
           String(r.stars),
-          truncate(r.text, 60),
+          truncate(r.text as string | null, 60),
           r.has_response ? 'yes' : '',
         ]),
       );
