@@ -1,5 +1,9 @@
 # ya-review (`yarev`)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22-green.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-blue.svg)](https://www.typescriptlang.org/)
+
 CLI tool for scraping, storing, and querying Yandex Maps business reviews.
 
 Track your business reviews and competitors, store them in SQLite, and query with filters or raw SQL. Designed for AI-friendly output (JSON by default when piped).
@@ -90,4 +94,4 @@ npm run build            # compile to dist/
 
 ## License
 
-MIT
+[MIT](LICENSE)
