@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { listCompanies } from '../db/companies.js';
 import { isJsonMode, outputJson, outputTable, truncate } from './helpers.js';
 import type { CompanyRole } from '../types/index.js';
@@ -9,9 +10,10 @@ export const companiesCommand = new Command('companies')
   .description('List tracked companies')
   .option('--role <role>', 'Filter by role: mine, competitor, tracked')
   .option('--json', 'Force JSON output')
-  .action((opts) => {
-    const db = openDb(config.dbPath);
-    const companies = listCompanies(db, opts.role as CompanyRole | undefined);
+  .action(async (opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    const companies = await listCompanies(db, opts.role as CompanyRole | undefined);
 
     if (isJsonMode(opts)) {
       outputJson(companies.map(c => ({
@@ -38,5 +40,5 @@ export const companiesCommand = new Command('companies')
         ]),
       );
     }
-    db.close();
+    await db.close();
   });

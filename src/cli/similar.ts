@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { getReviewEmbedding } from '../db/embeddings.js';
 import { semanticSearchReviews } from '../db/stats.js';
 import { embedTexts } from '../embeddings/client.js';
@@ -21,15 +22,16 @@ export const similarCommand = new Command('similar')
       return;
     }
 
-    const db = openDb(config.dbPath);
+    const db = await createDbClient(config);
+    await initSchema(db);
     let queryVec: number[];
 
     if (opts.review) {
       const reviewId = parseInt(opts.review, 10);
-      const emb = getReviewEmbedding(db, reviewId);
+      const emb = await getReviewEmbedding(db, reviewId);
       if (!emb) {
         console.error(`No embedding found for review ${reviewId}. Run: yarev embed`);
-        db.close();
+        await db.close();
         process.exitCode = 1;
         return;
       }
@@ -39,7 +41,7 @@ export const similarCommand = new Command('similar')
       queryVec = vec;
     }
 
-    const results = semanticSearchReviews(db, queryVec, {
+    const results = await semanticSearchReviews(db, queryVec, {
       orgId: opts.org,
       limit: parseInt(opts.limit, 10),
     });
@@ -49,7 +51,7 @@ export const similarCommand = new Command('similar')
     } else {
       if (results.length === 0) {
         console.log('No similar reviews found.');
-        db.close();
+        await db.close();
         return;
       }
       outputTable(
@@ -64,5 +66,5 @@ export const similarCommand = new Command('similar')
       );
       console.log(`\n${results.length} similar reviews`);
     }
-    db.close();
+    await db.close();
   });

@@ -1,9 +1,10 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { getParentTopics, getSubtopics } from '../db/topics.js';
 import { isJsonMode, outputJson } from './helpers.js';
-import type Database from 'better-sqlite3';
+import type { DbClient } from '../db/driver.js';
 
 interface TopicStats {
   topic_id: number;
@@ -13,28 +14,28 @@ interface TopicStats {
   children?: TopicStats[];
 }
 
-function getTopicStats(db: Database.Database, topicId: number): { review_count: number; avg_stars: number } {
-  const row = db.prepare(`
+async function getTopicStats(db: DbClient, topicId: number): Promise<{ review_count: number; avg_stars: number }> {
+  const row = await db.get<{ review_count: number; avg_stars: number }>(`
     SELECT COUNT(*) as review_count, COALESCE(AVG(r.stars), 0) as avg_stars
     FROM review_topics rt
     JOIN reviews r ON r.id = rt.review_id
     WHERE rt.topic_id = ?
-  `).get(topicId) as { review_count: number; avg_stars: number };
-  return row;
+  `, [topicId]);
+  return row!;
 }
 
-function buildTopicTree(db: Database.Database, orgId: string): TopicStats[] {
-  const parents = getParentTopics(db, orgId);
+async function buildTopicTree(db: DbClient, orgId: string): Promise<TopicStats[]> {
+  const parents = await getParentTopics(db, orgId);
   const result: TopicStats[] = [];
 
   for (const parent of parents) {
-    const subs = getSubtopics(db, parent.id);
+    const subs = await getSubtopics(db, parent.id);
     const children: TopicStats[] = [];
     let totalReviews = 0;
     let weightedStars = 0;
 
     for (const sub of subs) {
-      const stats = getTopicStats(db, sub.id);
+      const stats = await getTopicStats(db, sub.id);
       children.push({
         topic_id: sub.id,
         name: sub.name,
@@ -70,9 +71,10 @@ export const topicsCommand = new Command('topics')
   .argument('<org_id>', 'Organization ID')
   .option('--limit <n>', 'Max parent topics to show')
   .option('--json', 'Force JSON output')
-  .action((orgId: string, opts) => {
-    const db = openDb(config.dbPath);
-    let tree = buildTopicTree(db, orgId);
+  .action(async (orgId: string, opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    let tree = await buildTopicTree(db, orgId);
 
     if (opts.limit) {
       tree = tree.slice(0, parseInt(opts.limit, 10));
@@ -83,7 +85,7 @@ export const topicsCommand = new Command('topics')
     } else {
       if (tree.length === 0) {
         console.log('No topic data. Run: yarev apply, yarev embed, yarev classify');
-        db.close();
+        await db.close();
         return;
       }
 
@@ -103,5 +105,5 @@ export const topicsCommand = new Command('topics')
       }
     }
 
-    db.close();
+    await db.close();
   });

@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { getTrends } from '../db/stats.js';
 import { isJsonMode, outputJson, outputTable } from './helpers.js';
 
@@ -11,9 +12,10 @@ export const trendsCommand = new Command('trends')
   .option('--since <date>', 'Reviews since date (YYYY-MM-DD)')
   .option('--limit <n>', 'Max periods to show')
   .option('--json', 'Force JSON output')
-  .action((orgId: string, opts) => {
-    const db = openDb(config.dbPath);
-    const trends = getTrends(db, orgId, {
+  .action(async (orgId: string, opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    const trends = await getTrends(db, orgId, {
       groupBy: opts.period as 'week' | 'month' | 'quarter',
       since: opts.since,
       limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
@@ -36,5 +38,5 @@ export const trendsCommand = new Command('trends')
         ]),
       );
     }
-    db.close();
+    await db.close();
   });

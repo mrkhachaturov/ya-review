@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { listCompanies } from '../db/companies.js';
 import { getUnembeddedReviewIds, saveReviewEmbedding, saveTopicEmbedding } from '../db/embeddings.js';
 import { getTopicsForOrg } from '../db/topics.js';
@@ -13,17 +14,18 @@ export const embedCommand = new Command('embed')
   .option('--force', 'Re-embed even if already exists')
   .option('--batch', 'Use OpenAI Batch API (50% cheaper, async)')
   .action(async (opts) => {
-    const db = openDb(config.dbPath);
+    const db = await createDbClient(config);
+    await initSchema(db);
     const model = config.embeddingModel;
 
     // Determine which orgs to process
     const companies = opts.org
       ? [{ org_id: opts.org }]
-      : listCompanies(db).map(c => ({ org_id: c.org_id }));
+      : (await listCompanies(db)).map(c => ({ org_id: c.org_id }));
 
     if (opts.batch) {
       console.log('Batch mode not yet implemented. Use sync mode (without --batch).');
-      db.close();
+      await db.close();
       return;
     }
 
@@ -33,10 +35,11 @@ export const embedCommand = new Command('embed')
     for (const { org_id } of companies) {
       // 1. Embed unembedded reviews
       const reviews = opts.force
-        ? db.prepare(
-            "SELECT id, text FROM reviews WHERE org_id = ? AND text IS NOT NULL AND text != '' ORDER BY id"
-          ).all(org_id) as { id: number; text: string }[]
-        : getUnembeddedReviewIds(db, org_id);
+        ? await db.all<{ id: number; text: string }>(
+            "SELECT id, text FROM reviews WHERE org_id = ? AND text IS NOT NULL AND text != '' ORDER BY id",
+            [org_id],
+          )
+        : await getUnembeddedReviewIds(db, org_id);
 
       if (reviews.length > 0) {
         console.log(`${org_id}: embedding ${reviews.length} reviews...`);
@@ -47,13 +50,13 @@ export const embedCommand = new Command('embed')
         process.stdout.write('\n');
 
         for (let i = 0; i < reviews.length; i++) {
-          saveReviewEmbedding(db, reviews[i].id, model, float32ToBuffer(embeddings[i]), null);
+          await saveReviewEmbedding(db, reviews[i].id, model, float32ToBuffer(embeddings[i]), null);
         }
         totalReviews += reviews.length;
       }
 
       // 2. Embed topic labels (always re-embed — they're few and labels may change)
-      const topics = getTopicsForOrg(db, org_id);
+      const topics = await getTopicsForOrg(db, org_id);
       const unembeddedTopics = opts.force
         ? topics
         : topics.filter(t => !t.embedding);
@@ -63,12 +66,12 @@ export const embedCommand = new Command('embed')
         const topicTexts = unembeddedTopics.map(t => t.name);
         const topicEmbeddings = await embedBatched(topicTexts, undefined, model);
         for (let i = 0; i < unembeddedTopics.length; i++) {
-          saveTopicEmbedding(db, unembeddedTopics[i].id, float32ToBuffer(topicEmbeddings[i]));
+          await saveTopicEmbedding(db, unembeddedTopics[i].id, float32ToBuffer(topicEmbeddings[i]));
         }
         totalTopics += unembeddedTopics.length;
       }
     }
 
     console.log(`Done: ${totalReviews} reviews, ${totalTopics} topics embedded.`);
-    db.close();
+    await db.close();
   });

@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { getStats } from '../db/stats.js';
 import { isJsonMode, outputJson, outputTable } from './helpers.js';
 
@@ -9,9 +10,10 @@ export const statsCommand = new Command('stats')
   .argument('<org_id>', 'Organization ID')
   .option('--since <date>', 'Only include reviews since date (YYYY-MM-DD)')
   .option('--json', 'Force JSON output')
-  .action((orgId: string, opts) => {
-    const db = openDb(config.dbPath);
-    const stats = getStats(db, orgId, { since: opts.since });
+  .action(async (orgId: string, opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    const stats = await getStats(db, orgId, { since: opts.since });
 
     if (isJsonMode(opts)) {
       outputJson(stats);
@@ -31,5 +33,5 @@ export const statsCommand = new Command('stats')
         ]),
       );
     }
-    db.close();
+    await db.close();
   });

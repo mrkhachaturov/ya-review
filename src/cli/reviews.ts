@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { queryReviews } from '../db/reviews.js';
 import { isJsonMode, outputJson, outputTable, truncate } from './helpers.js';
 
@@ -11,8 +12,9 @@ export const reviewsCommand = new Command('reviews')
   .option('--stars <range>', 'Star range, e.g. 1-3 or 5')
   .option('--limit <n>', 'Max results')
   .option('--json', 'Force JSON output')
-  .action((orgId: string, opts) => {
-    const db = openDb(config.dbPath);
+  .action(async (orgId: string, opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
 
     let starsMin: number | undefined;
     let starsMax: number | undefined;
@@ -22,7 +24,7 @@ export const reviewsCommand = new Command('reviews')
       starsMax = parts.length > 1 ? parseFloat(parts[1]) : starsMin;
     }
 
-    const reviews = queryReviews(db, orgId, {
+    const reviews = await queryReviews(db, orgId, {
       since: opts.since,
       starsMin,
       starsMax,
@@ -48,5 +50,5 @@ export const reviewsCommand = new Command('reviews')
       );
       console.log(`\n${reviews.length} reviews`);
     }
-    db.close();
+    await db.close();
   });

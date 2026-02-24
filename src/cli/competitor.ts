@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { getCompany } from '../db/companies.js';
 import { addCompetitor, removeCompetitor, getCompetitors } from '../db/competitors.js';
 import { isJsonMode, outputJson, outputTable } from './helpers.js';
@@ -13,19 +14,20 @@ competitorCommand
   .description('Add a competitor to a company')
   .requiredOption('--org <org_id>', 'Your company org ID')
   .requiredOption('--competitor <org_id>', 'Competitor org ID')
-  .action((opts) => {
-    const db = openDb(config.dbPath);
-    if (!getCompany(db, opts.org)) {
+  .action(async (opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    if (!await getCompany(db, opts.org)) {
       console.error(`Company ${opts.org} not tracked. Run \`yarev track ${opts.org}\` first.`);
       process.exit(1);
     }
-    if (!getCompany(db, opts.competitor)) {
+    if (!await getCompany(db, opts.competitor)) {
       console.error(`Competitor ${opts.competitor} not tracked. Run \`yarev track ${opts.competitor}\` first.`);
       process.exit(1);
     }
-    addCompetitor(db, opts.org, opts.competitor);
+    await addCompetitor(db, opts.org, opts.competitor);
     console.log(`Added competitor ${opts.competitor} to ${opts.org}`);
-    db.close();
+    await db.close();
   });
 
 competitorCommand
@@ -33,11 +35,12 @@ competitorCommand
   .description('Remove a competitor from a company')
   .requiredOption('--org <org_id>', 'Your company org ID')
   .requiredOption('--competitor <org_id>', 'Competitor org ID')
-  .action((opts) => {
-    const db = openDb(config.dbPath);
-    removeCompetitor(db, opts.org, opts.competitor);
+  .action(async (opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    await removeCompetitor(db, opts.org, opts.competitor);
     console.log(`Removed competitor ${opts.competitor} from ${opts.org}`);
-    db.close();
+    await db.close();
   });
 
 competitorCommand
@@ -45,9 +48,10 @@ competitorCommand
   .description('List competitors for a company')
   .requiredOption('--org <org_id>', 'Company org ID')
   .option('--json', 'Force JSON output')
-  .action((opts) => {
-    const db = openDb(config.dbPath);
-    const competitors = getCompetitors(db, opts.org);
+  .action(async (opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    const competitors = await getCompetitors(db, opts.org);
 
     if (isJsonMode(opts)) {
       outputJson(competitors.map(c => ({
@@ -65,5 +69,5 @@ competitorCommand
         ]),
       );
     }
-    db.close();
+    await db.close();
   });

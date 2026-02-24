@@ -1,11 +1,12 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { getCompany } from '../db/companies.js';
 import { getParentTopics, getSubtopics } from '../db/topics.js';
 import { computeTopicScore } from '../embeddings/scoring.js';
 import { isJsonMode, outputJson } from './helpers.js';
-import type Database from 'better-sqlite3';
+import type { DbClient } from '../db/driver.js';
 
 interface TopicScoreResult {
   topic_id: number;
@@ -24,32 +25,32 @@ interface CompanyScoreResult {
   topics: TopicScoreResult[];
 }
 
-function getReviewsForTopic(db: Database.Database, topicId: number): { stars: number; date: string }[] {
-  return db.prepare(`
+async function getReviewsForTopic(db: DbClient, topicId: number): Promise<{ stars: number; date: string }[]> {
+  return db.all<{ stars: number; date: string }>(`
     SELECT r.stars, r.date
     FROM review_topics rt
     JOIN reviews r ON r.id = rt.review_id
     WHERE rt.topic_id = ? AND r.date IS NOT NULL
-  `).all(topicId) as { stars: number; date: string }[];
+  `, [topicId]);
 }
 
-function computeCompanyScore(db: Database.Database, orgId: string, full: boolean): CompanyScoreResult {
-  const company = getCompany(db, orgId);
+async function computeCompanyScore(db: DbClient, orgId: string, full: boolean): Promise<CompanyScoreResult> {
+  const company = await getCompany(db, orgId);
   const companyName = company?.name ?? orgId;
-  const parents = getParentTopics(db, orgId);
+  const parents = await getParentTopics(db, orgId);
 
   const topics: TopicScoreResult[] = [];
   let totalWeightedScore = 0;
   let totalReviewCount = 0;
 
   for (const parent of parents) {
-    const subs = getSubtopics(db, parent.id);
+    const subs = await getSubtopics(db, parent.id);
     let parentReviewCount = 0;
     let parentWeightedScore = 0;
     const subtopicResults: TopicScoreResult[] = [];
 
     for (const sub of subs) {
-      const reviews = getReviewsForTopic(db, sub.id);
+      const reviews = await getReviewsForTopic(db, sub.id);
       const result = computeTopicScore(reviews);
       subtopicResults.push({
         topic_id: sub.id,
@@ -147,59 +148,67 @@ export const scoreCommand = new Command('score')
   .option('--compare <org_ids>', 'Compare two orgs (comma-separated)')
   .option('--refresh', 'Recompute and store scores')
   .option('--json', 'Force JSON output')
-  .action((orgId: string | undefined, opts) => {
-    const db = openDb(config.dbPath);
+  .action(async (orgId: string | undefined, opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
 
     if (opts.compare) {
       const [idA, idB] = opts.compare.split(',').map((s: string) => s.trim());
       if (!idA || !idB) {
         console.error('Usage: yarev score --compare org1,org2');
-        db.close();
+        await db.close();
         process.exitCode = 1;
         return;
       }
-      const a = computeCompanyScore(db, idA, false);
-      const b = computeCompanyScore(db, idB, false);
+      const a = await computeCompanyScore(db, idA, false);
+      const b = await computeCompanyScore(db, idB, false);
 
       if (isJsonMode(opts)) {
         outputJson({ companies: [a, b] });
       } else {
         printComparison(a, b);
       }
-      db.close();
+      await db.close();
       return;
     }
 
     if (!orgId) {
       console.error('Usage: yarev score <org_id> [--full] [--compare org1,org2]');
-      db.close();
+      await db.close();
       process.exitCode = 1;
       return;
     }
 
-    const result = computeCompanyScore(db, orgId, !!opts.full);
+    const result = await computeCompanyScore(db, orgId, !!opts.full);
 
     if (opts.refresh) {
       // Store scores in company_scores table
-      const upsert = db.prepare(`
-        INSERT INTO company_scores (org_id, topic_id, score, review_count, confidence)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(org_id, topic_id) DO UPDATE SET
-          score = excluded.score,
-          review_count = excluded.review_count,
-          confidence = excluded.confidence,
-          computed_at = datetime('now')
-      `);
-      db.transaction(() => {
+      await db.transaction(async () => {
         for (const topic of result.topics) {
-          upsert.run(orgId, topic.topic_id, topic.score, topic.review_count, topic.confidence);
+          await db.run(`
+            INSERT INTO company_scores (org_id, topic_id, score, review_count, confidence)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(org_id, topic_id) DO UPDATE SET
+              score = excluded.score,
+              review_count = excluded.review_count,
+              confidence = excluded.confidence,
+              computed_at = datetime('now')
+          `, [orgId, topic.topic_id, topic.score, topic.review_count, topic.confidence]);
           if (topic.subtopics) {
             for (const sub of topic.subtopics) {
-              upsert.run(orgId, sub.topic_id, sub.score, sub.review_count, sub.confidence);
+              await db.run(`
+                INSERT INTO company_scores (org_id, topic_id, score, review_count, confidence)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(org_id, topic_id) DO UPDATE SET
+                  score = excluded.score,
+                  review_count = excluded.review_count,
+                  confidence = excluded.confidence,
+                  computed_at = datetime('now')
+              `, [orgId, sub.topic_id, sub.score, sub.review_count, sub.confidence]);
             }
           }
         }
-      })();
+      });
     }
 
     if (isJsonMode(opts)) {
@@ -207,10 +216,10 @@ export const scoreCommand = new Command('score')
     } else {
       if (result.topics.length === 0) {
         console.log('No scoring data. Run: yarev apply, yarev embed, yarev classify');
-        db.close();
+        await db.close();
         return;
       }
       printCompanyScore(result, !!opts.full);
     }
-    db.close();
+    await db.close();
   });

@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { listCompanies } from '../db/companies.js';
 import { getLastSync } from '../db/sync-log.js';
 import { isJsonMode, outputJson, outputTable } from './helpers.js';
@@ -8,24 +9,28 @@ import { isJsonMode, outputJson, outputTable } from './helpers.js';
 export const statusCommand = new Command('status')
   .description('Show sync status for all tracked companies')
   .option('--json', 'Force JSON output')
-  .action((opts) => {
-    const db = openDb(config.dbPath);
-    const companies = listCompanies(db);
+  .action(async (opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    const companies = await listCompanies(db);
 
-    const statuses = companies.map(c => {
-      const last = getLastSync(db, c.org_id);
-      const reviewCount = db.prepare('SELECT COUNT(*) as cnt FROM reviews WHERE org_id = ?')
-        .get(c.org_id) as { cnt: number };
-      return {
+    const statuses = [];
+    for (const c of companies) {
+      const last = await getLastSync(db, c.org_id);
+      const reviewCount = await db.get<{ cnt: number }>(
+        'SELECT COUNT(*) as cnt FROM reviews WHERE org_id = ?',
+        [c.org_id],
+      );
+      statuses.push({
         org_id: c.org_id,
         name: c.name,
         role: c.role,
-        reviews_in_db: reviewCount.cnt,
+        reviews_in_db: reviewCount!.cnt,
         last_sync: last?.finished_at ?? 'never',
         last_sync_type: last?.sync_type ?? '—',
         last_status: last?.status ?? '—',
-      };
-    });
+      });
+    }
 
     if (isJsonMode(opts)) {
       outputJson(statuses);
@@ -46,5 +51,5 @@ export const statusCommand = new Command('status')
         ]),
       );
     }
-    db.close();
+    await db.close();
   });

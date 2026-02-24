@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { searchReviews, semanticSearchReviews, hasEmbeddings } from '../db/stats.js';
 import { embedTexts } from '../embeddings/client.js';
 import { isJsonMode, outputJson, outputTable, truncate } from './helpers.js';
@@ -14,7 +15,8 @@ export const searchCommand = new Command('search')
   .option('--json', 'Force JSON output')
   .option('--no-semantic', 'Force text-only search (skip embeddings)')
   .action(async (text: string, opts) => {
-    const db = openDb(config.dbPath);
+    const db = await createDbClient(config);
+    await initSchema(db);
 
     let starsMin: number | undefined;
     let starsMax: number | undefined;
@@ -32,21 +34,21 @@ export const searchCommand = new Command('search')
     };
 
     // Try semantic search if embeddings exist and API key is set
-    const useSemantic = opts.semantic !== false && config.openaiApiKey && hasEmbeddings(db);
+    const useSemantic = opts.semantic !== false && config.openaiApiKey && await hasEmbeddings(db);
     let results;
     let mode = 'text';
 
     if (useSemantic) {
       try {
         const [queryVec] = await embedTexts([text]);
-        results = semanticSearchReviews(db, queryVec, searchOpts);
+        results = await semanticSearchReviews(db, queryVec, searchOpts);
         mode = 'semantic';
       } catch {
         // Fall back to text search if embedding fails
-        results = searchReviews(db, text, searchOpts);
+        results = await searchReviews(db, text, searchOpts);
       }
     } else {
-      results = searchReviews(db, text, searchOpts);
+      results = await searchReviews(db, text, searchOpts);
     }
 
     if (isJsonMode(opts)) {
@@ -54,7 +56,7 @@ export const searchCommand = new Command('search')
     } else {
       if (results.length === 0) {
         console.log('No reviews found.');
-        db.close();
+        await db.close();
         return;
       }
 
@@ -79,5 +81,5 @@ export const searchCommand = new Command('search')
       outputTable(headers, rows);
       console.log(`\n${results.length} results (${mode} search)`);
     }
-    db.close();
+    await db.close();
   });

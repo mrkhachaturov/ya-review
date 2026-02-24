@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { upsertCompany, getCompany } from '../db/companies.js';
 import type { CompanyRole } from '../types/index.js';
 
@@ -9,10 +10,11 @@ export const trackCommand = new Command('track')
   .argument('<org_id>', 'Yandex Maps organization ID')
   .option('--name <name>', 'Business name (auto-detected on first sync)')
   .option('--role <role>', 'Role: mine, competitor, tracked', 'tracked')
-  .action((orgId: string, opts) => {
-    const db = openDb(config.dbPath);
-    const existing = getCompany(db, orgId);
-    upsertCompany(db, {
+  .action(async (orgId: string, opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
+    const existing = await getCompany(db, orgId);
+    await upsertCompany(db, {
       org_id: orgId,
       name: opts.name,
       role: opts.role as CompanyRole,
@@ -23,5 +25,5 @@ export const trackCommand = new Command('track')
       console.log(`Now tracking org ${orgId} (role: ${opts.role})`);
       console.log('Run `yarev sync --org ' + orgId + ' --full` for initial full scrape.');
     }
-    db.close();
+    await db.close();
   });

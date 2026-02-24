@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { listCompanies, upsertCompany } from '../db/companies.js';
 import { upsertReviews } from '../db/reviews.js';
 import { logSync } from '../db/sync-log.js';
@@ -17,16 +18,18 @@ export const syncCommand = new Command('sync')
   .option('--browser-url <url>', 'Remote browser WebSocket URL')
   .option('--json', 'Force JSON output')
   .action(async (opts) => {
-    const db = openDb(config.dbPath);
+    const db = await createDbClient(config);
+    await initSchema(db);
     const cfg = {
       ...config,
       ...(opts.backend ? { browserBackend: opts.backend as BrowserBackend } : {}),
       ...(opts.browserUrl ? { browserWsUrl: opts.browserUrl } : {}),
     };
 
+    const allCompanies = await listCompanies(db);
     const companies = opts.org
-      ? listCompanies(db).filter(c => c.org_id === opts.org)
-      : listCompanies(db);
+      ? allCompanies.filter(c => c.org_id === opts.org)
+      : allCompanies;
 
     if (companies.length === 0) {
       console.error(opts.org
@@ -47,9 +50,11 @@ export const syncCommand = new Command('sync')
 
     for (const company of companies) {
       const startedAt = new Date().toISOString();
-      const isFull = opts.full || !db.prepare(
-        'SELECT id FROM sync_log WHERE org_id = ? AND status = ? LIMIT 1'
-      ).get(company.org_id, 'ok');
+      const hasPriorSync = await db.get<{ id: number }>(
+        'SELECT id FROM sync_log WHERE org_id = ? AND status = ? LIMIT 1',
+        [company.org_id, 'ok'],
+      );
+      const isFull = opts.full || !hasPriorSync;
 
       try {
         if (!isJsonMode(opts)) {
@@ -59,7 +64,7 @@ export const syncCommand = new Command('sync')
         const result = await scrapeReviews(browser, company.org_id, cfg, { full: isFull });
 
         // Update company metadata
-        upsertCompany(db, {
+        await upsertCompany(db, {
           org_id: company.org_id,
           name: result.company.name,
           rating: result.company.rating,
@@ -70,10 +75,10 @@ export const syncCommand = new Command('sync')
         });
 
         // Upsert reviews
-        const { added, updated } = upsertReviews(db, company.org_id, result.reviews);
+        const { added, updated } = await upsertReviews(db, company.org_id, result.reviews);
 
         const finishedAt = new Date().toISOString();
-        logSync(db, {
+        await logSync(db, {
           org_id: company.org_id,
           sync_type: isFull ? 'full' : 'incremental',
           reviews_added: added,
@@ -99,7 +104,7 @@ export const syncCommand = new Command('sync')
         }
       } catch (err) {
         const finishedAt = new Date().toISOString();
-        logSync(db, {
+        await logSync(db, {
           org_id: company.org_id,
           sync_type: isFull ? 'full' : 'incremental',
           reviews_added: 0,
@@ -124,7 +129,7 @@ export const syncCommand = new Command('sync')
     }
 
     await browser.close();
-    db.close();
+    await db.close();
 
     if (isJsonMode(opts)) {
       outputJson(results);

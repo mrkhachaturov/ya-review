@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { isJsonMode, outputJson, outputTable, truncate } from './helpers.js';
 
 export const unansweredCommand = new Command('unanswered')
@@ -10,8 +11,9 @@ export const unansweredCommand = new Command('unanswered')
   .option('--since <date>', 'Reviews since date (YYYY-MM-DD)')
   .option('--limit <n>', 'Max results (default: 50)')
   .option('--json', 'Force JSON output')
-  .action((orgId: string, opts) => {
-    const db = openDb(config.dbPath);
+  .action(async (orgId: string, opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
 
     const conditions = ['org_id = ?', 'business_response IS NULL'];
     const params: (string | number)[] = [orgId];
@@ -31,14 +33,14 @@ export const unansweredCommand = new Command('unanswered')
     const where = conditions.join(' AND ');
     const limit = opts.limit ? parseInt(opts.limit, 10) : 50;
 
-    const rows = db.prepare(`
+    const rows = await db.all<{
+      date: string | null; stars: number; text: string | null;
+      author_name: string | null; review_url: string | null;
+    }>(`
       SELECT date, stars, text, author_name, review_url
       FROM reviews WHERE ${where}
       ORDER BY date DESC LIMIT ?
-    `).all(...params, limit) as {
-      date: string | null; stars: number; text: string | null;
-      author_name: string | null; review_url: string | null;
-    }[];
+    `, [...params, limit]);
 
     if (isJsonMode(opts)) {
       outputJson(rows.map(r => ({
@@ -64,5 +66,5 @@ export const unansweredCommand = new Command('unanswered')
       );
       console.log(`\n${rows.length} unanswered reviews`);
     }
-    db.close();
+    await db.close();
   });

@@ -1,16 +1,18 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { execSync } from 'node:child_process';
 import type { BrowserBackend } from '../types/index.js';
 
 export const initCommand = new Command('init')
   .description('Initialize database and install browser')
   .option('--backend <backend>', 'Browser to install: patchright, playwright', config.browserBackend)
-  .action((opts) => {
+  .action(async (opts) => {
     // Create DB
-    const db = openDb(config.dbPath);
-    db.close();
+    const db = await createDbClient(config);
+    await initSchema(db);
+    await db.close();
     console.log(`Database created at ${config.dbPath}`);
 
     // Install browser

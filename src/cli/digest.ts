@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { queryReviews } from '../db/reviews.js';
 import { isJsonMode, outputJson, outputTable, truncate } from './helpers.js';
 
@@ -13,8 +14,9 @@ export const digestCommand = new Command('digest')
   .option('--no-truncate', 'Show full review text')
   .option('--responses', 'Include business response text')
   .option('--json', 'Force JSON output')
-  .action((orgId: string, opts) => {
-    const db = openDb(config.dbPath);
+  .action(async (orgId: string, opts) => {
+    const db = await createDbClient(config);
+    await initSchema(db);
 
     let starsMin: number | undefined;
     let starsMax: number | undefined;
@@ -24,7 +26,7 @@ export const digestCommand = new Command('digest')
       starsMax = parts.length > 1 ? parseFloat(parts[1]) : starsMin;
     }
 
-    const reviews = queryReviews(db, orgId, {
+    const reviews = await queryReviews(db, orgId, {
       since: opts.since,
       starsMin,
       starsMax,
@@ -64,5 +66,5 @@ export const digestCommand = new Command('digest')
       );
       console.log(`\n${digest.length} reviews`);
     }
-    db.close();
+    await db.close();
   });

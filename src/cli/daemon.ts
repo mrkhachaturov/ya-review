@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config } from '../config.js';
-import { openDb } from '../db/schema.js';
+import { createDbClient } from '../db/driver.js';
+import { initSchema } from '../db/schema.js';
 import { listCompanies, upsertCompany } from '../db/companies.js';
 import { upsertReviews } from '../db/reviews.js';
 import { logSync } from '../db/sync-log.js';
@@ -22,11 +23,12 @@ export const daemonCommand = new Command('daemon')
     console.log(`Starting daemon with schedule: ${opts.cron}`);
 
     const runSync = async () => {
-      const db = openDb(config.dbPath);
-      const companies = listCompanies(db);
+      const db = await createDbClient(config);
+      await initSchema(db);
+      const companies = await listCompanies(db);
       if (companies.length === 0) {
         console.log(`[${new Date().toISOString()}] No companies to sync.`);
-        db.close();
+        await db.close();
         return;
       }
 
@@ -35,21 +37,23 @@ export const daemonCommand = new Command('daemon')
         browser = await createBrowser(config);
       } catch (err) {
         console.error(`[${new Date().toISOString()}] Browser error: ${err}`);
-        db.close();
+        await db.close();
         return;
       }
 
       for (const company of companies) {
         const startedAt = new Date().toISOString();
-        const isFull = !db.prepare(
-          'SELECT id FROM sync_log WHERE org_id = ? AND status = ? LIMIT 1'
-        ).get(company.org_id, 'ok');
+        const hasPriorSync = await db.get<{ id: number }>(
+          'SELECT id FROM sync_log WHERE org_id = ? AND status = ? LIMIT 1',
+          [company.org_id, 'ok'],
+        );
+        const isFull = !hasPriorSync;
 
         try {
           console.log(`[${new Date().toISOString()}] Syncing ${company.name ?? company.org_id}...`);
           const result = await scrapeReviews(browser, company.org_id, config, { full: isFull });
 
-          upsertCompany(db, {
+          await upsertCompany(db, {
             org_id: company.org_id,
             name: result.company.name,
             rating: result.company.rating,
@@ -59,9 +63,9 @@ export const daemonCommand = new Command('daemon')
             role: company.role,
           });
 
-          const { added, updated } = upsertReviews(db, company.org_id, result.reviews);
+          const { added, updated } = await upsertReviews(db, company.org_id, result.reviews);
 
-          logSync(db, {
+          await logSync(db, {
             org_id: company.org_id,
             sync_type: isFull ? 'full' : 'incremental',
             reviews_added: added,
@@ -73,7 +77,7 @@ export const daemonCommand = new Command('daemon')
 
           console.log(`  +${added} new, ~${updated} updated`);
         } catch (err) {
-          logSync(db, {
+          await logSync(db, {
             org_id: company.org_id,
             sync_type: isFull ? 'full' : 'incremental',
             reviews_added: 0,
@@ -88,7 +92,7 @@ export const daemonCommand = new Command('daemon')
       }
 
       await browser.close();
-      db.close();
+      await db.close();
     };
 
     // Run immediately on start
