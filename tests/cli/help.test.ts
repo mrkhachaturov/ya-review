@@ -9,6 +9,11 @@ describe('yarev CLI', () => {
     assert.ok(output.includes('sync'));
     assert.ok(output.includes('track'));
     assert.ok(output.includes('compare'));
+    assert.ok(output.includes('stats'));
+    assert.ok(output.includes('digest'));
+    assert.ok(output.includes('search'));
+    assert.ok(output.includes('trends'));
+    assert.ok(output.includes('unanswered'));
   });
 
   it('shows version', () => {
