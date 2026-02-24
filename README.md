@@ -8,7 +8,7 @@
 
 CLI tool for scraping, storing, and querying Yandex Maps business reviews with AI-powered topic analysis.
 
-Track your business reviews and competitors, store them in SQLite, classify by topic using OpenAI embeddings, and score quality across dimensions. Designed for AI-friendly output (JSON by default when piped).
+Track your business reviews and competitors, store them in SQLite or PostgreSQL (with pgvector), classify by topic using OpenAI embeddings, and score quality across dimensions. Supports Docker deployment. Designed for AI-friendly output (JSON by default when piped).
 
 ## Requirements
 
@@ -80,7 +80,7 @@ yarev query "SELECT COUNT(*) as cnt FROM reviews WHERE stars >= 4"
 |---------|-------------|
 | `sync` | Scrape reviews for tracked orgs (`--org`, `--full`) |
 | `status` | Show sync status for all companies |
-| `daemon` | Scheduled sync via cron (`--cron`) |
+| `daemon` | Scheduled sync via cron (`--cron`, `--embed-cron`) |
 
 ### Querying & Analysis
 
@@ -124,12 +124,31 @@ Environment variables (or `.env` file):
 | `BROWSER_WS_URL` | — | WebSocket URL for remote browser |
 | `BROWSER_HEADLESS` | `true` | Run browser headless |
 | `MAX_PAGES` | `20` | Max scroll pages during full sync |
-| `DAEMON_CRON` | `0 8 * * *` | Cron schedule for daemon mode |
+| `DAEMON_CRON` | `0 8 * * *` | Cron schedule for daemon sync |
+| `EMBED_CRON` | `0 2 * * *` | Cron schedule for embed pipeline |
+| `EMBED_ON_SYNC` | `false` | Run embed pipeline after each sync |
 | `YAREV_OPENAI_API_KEY` | — | OpenAI API key (required for embeddings) |
 | `YAREV_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
 | `YAREV_CONFIG` | `~/.yarev/config.yaml` | Path to YAML config |
 
 See [.env.example](.env.example) for all options.
+
+## Docker
+
+Run with PostgreSQL + pgvector:
+
+```bash
+# Start PostgreSQL only (for local dev with PG)
+docker compose up -d postgres
+
+# Start full stack (PG + yarev daemon)
+docker compose up
+
+# Build image
+docker build -t yarev .
+```
+
+Configure via environment variables or `.env` file — see [.env.example](.env.example).
 
 ## Development
 
@@ -137,6 +156,7 @@ See [.env.example](.env.example) for all options.
 npm run dev -- --help    # run via tsx
 npm test                 # run tests
 npm run build            # compile to dist/
+npx tsc --noEmit         # type-check without emitting
 ```
 
 ## License

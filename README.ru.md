@@ -8,7 +8,7 @@
 
 CLI-инструмент для сбора, хранения и анализа отзывов с Яндекс Карт с AI-классификацией по темам.
 
-Отслеживайте отзывы о своём бизнесе и конкурентах, храните в SQLite, классифицируйте по темам с помощью OpenAI-эмбеддингов и оценивайте качество по направлениям. Вывод в JSON по умолчанию при перенаправлении — удобно для интеграции с AI и скриптами.
+Отслеживайте отзывы о своём бизнесе и конкурентах, храните в SQLite или PostgreSQL (с pgvector), классифицируйте по темам с помощью OpenAI-эмбеддингов и оценивайте качество по направлениям. Поддержка деплоя через Docker. Вывод в JSON по умолчанию при перенаправлении — удобно для интеграции с AI и скриптами.
 
 ## Требования
 
@@ -81,7 +81,7 @@ yarev query "SELECT COUNT(*) as cnt FROM reviews WHERE stars >= 4"
 |---------|----------|
 | `sync` | Собрать отзывы (`--org`, `--full`) |
 | `status` | Статус синхронизации |
-| `daemon` | Планировщик по cron (`--cron`) |
+| `daemon` | Планировщик по cron (`--cron`, `--embed-cron`) |
 
 ### Запросы и анализ
 
@@ -149,12 +149,31 @@ yarev score <org_id> --full
 | `BROWSER_WS_URL` | — | WebSocket URL для удалённого браузера |
 | `BROWSER_HEADLESS` | `true` | Запуск браузера в headless-режиме |
 | `MAX_PAGES` | `20` | Макс. страниц при полной синхронизации |
-| `DAEMON_CRON` | `0 8 * * *` | Cron-расписание для демона |
+| `DAEMON_CRON` | `0 8 * * *` | Cron-расписание для синхронизации |
+| `EMBED_CRON` | `0 2 * * *` | Cron-расписание для пайплайна эмбеддингов |
+| `EMBED_ON_SYNC` | `false` | Запускать эмбеддинги после каждой синхронизации |
 | `YAREV_OPENAI_API_KEY` | — | OpenAI API-ключ (обязателен для эмбеддингов) |
 | `YAREV_EMBEDDING_MODEL` | `text-embedding-3-small` | Модель эмбеддингов |
 | `YAREV_CONFIG` | `~/.yarev/config.yaml` | Путь к YAML-конфигу |
 
 См. [.env.example](.env.example) для полного списка.
+
+## Docker
+
+Запуск с PostgreSQL + pgvector:
+
+```bash
+# Запустить только PostgreSQL (для локальной разработки с PG)
+docker compose up -d postgres
+
+# Запустить полный стек (PG + yarev демон)
+docker compose up
+
+# Собрать образ
+docker build -t yarev .
+```
+
+Настройка через переменные окружения или `.env` файл — см. [.env.example](.env.example).
 
 ## Разработка
 
@@ -162,6 +181,7 @@ yarev score <org_id> --full
 npm run dev -- --help    # запуск через tsx
 npm test                 # запуск тестов
 npm run build            # сборка в dist/
+npx tsc --noEmit         # проверка типов без генерации
 ```
 
 ## Лицензия
